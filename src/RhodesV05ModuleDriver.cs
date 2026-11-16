@@ -43,6 +43,7 @@ namespace EndfieldDoK.MapUnitLab
             RestorePose();View=view;Binding=binding;ViewEntity=view.EntityID;HaveEntity=true;
             HaveOwner=false;Initialized=false;LastRevision=-1;Slots.Clear();
             if(binding==null||!binding.IsV05)return;
+            EndfieldDoK.ModelIntake.RhodesCarrierBatches.RebindLive(binding.GeometryRoot,binding.FindNode);
             NativeRead.Set(view,"mGeoRenderObjects",binding.Geometry);
             NativeRead.Call(view,"UpdateUnitMaterialPropertyBlock",true);
             RhodesRendererColourDiagnostic.Record(view,binding);

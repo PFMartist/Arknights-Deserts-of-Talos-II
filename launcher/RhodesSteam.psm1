@@ -64,17 +64,20 @@ function Get-RhodesSteamInstallations([string[]]$SeedRoots=@(),[switch]$NoSystem
                     $entry=$parsed['libraryfolders'][$key]
                     if($entry -is [Collections.IDictionary]){if(-not $entry.ContainsKey('path')){continue};$path=[string]$entry['path']}
                     else {$path=[string]$entry}
-                    $full=[IO.Path]::GetFullPath($path).TrimEnd('\','/')
-                    $libraries[$full]=$steamRoot
+                    try{
+                        $full=[IO.Path]::GetFullPath($path).TrimEnd('\','/')
+                        $libraries[$full]=$steamRoot
+                    }catch{Write-Verbose ('Ignored invalid Steam library path: '+$path+'; '+$_.Exception.Message)}
                 }
             }catch{Write-Verbose ('Ignored unreadable Steam library list: '+$vdf+'; '+$_.Exception.Message)}
         }
     }
     $seen=@{}
     foreach($library in @($libraries.Keys|Sort-Object)){
-        $acf=Join-Path $library 'steamapps\appmanifest_281610.acf'
-        if(-not(Test-Path -LiteralPath $acf -PathType Leaf)){continue}
         try{
+            # Removed drives and unavailable libraries must not stop discovery.
+            $acf=Join-Path $library 'steamapps\appmanifest_281610.acf'
+            if(-not(Test-Path -LiteralPath $acf -PathType Leaf)){continue}
             $parsed=ConvertFrom-RhodesVdf ([IO.File]::ReadAllText($acf))
             $app=$parsed['AppState']
             if($null -eq $app -or [string]$app['appid'] -ne '281610' -or -not $app.ContainsKey('installdir')){continue}
@@ -84,7 +87,7 @@ function Get-RhodesSteamInstallations([string[]]$SeedRoots=@(),[switch]$NoSystem
             if($seen.ContainsKey($game) -or -not(Test-Path -LiteralPath (Join-Path $game 'DesertsOfKharak64.exe') -PathType Leaf)){continue}
             $seen[$game]=$true
             [pscustomobject]@{gameRoot=$game;steamRoot=$libraries[$library];libraryRoot=$library;manifestPath=$acf;buildId=[string]$app['buildid'];appId=281610;discovery='Steam appmanifest'}
-        }catch{Write-Verbose ('Ignored unreadable Steam game manifest: '+$acf+'; '+$_.Exception.Message)}
+        }catch{Write-Verbose ('Ignored unavailable Steam library or game manifest: '+$library+'; '+$_.Exception.Message)}
     }
 }
 function Get-RhodesSteamLaunchStatus {

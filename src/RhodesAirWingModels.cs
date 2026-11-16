@@ -137,6 +137,7 @@ namespace EndfieldDoK.MapUnitLab
             if(view.NonInterpolatedTickState==null||view.NonInterpolatedTickState.UnitIsDead||view.IsDriverDead)return false;
             try
             {
+            EndfieldDoK.ModelIntake.RhodesRigidBatches.RebindLive(GeometryRoot);
             if(Registered)BvmNativeState.Unbind(BoundEntity);
             if(!GeometryPoseReady){AuthoredGeometryRotation=GeometryRoot.localRotation;GeometryPoseReady=true;}
             if(!GuideState.BelongsTo(view.EntityID))ClearGuide();

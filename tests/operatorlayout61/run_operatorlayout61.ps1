@@ -43,4 +43,4 @@ $exe=Join-Path $audit 'OperatorLayoutFixture61.exe'
 if($LASTEXITCODE -ne 0){throw 'Operator layout fixture compile failed'}
 & $exe 2>&1 | Tee-Object -FilePath (Join-Path $audit 'OPERATOR_LAYOUT61_RESULT.txt')
 if($LASTEXITCODE -ne 0){throw 'Operator layout fixture FAILED'}
-@($sourcePath,$generated,(Join-Path $PSScriptRoot 'OperatorLayoutFixture61.cs'),(Join-Path $root 'out\EndfieldDoK.MapUnitLab.dll')) | Where-Object {Test-Path -LiteralPath $_} | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $audit 'VERIFIED_OPERATOR_LAYOUT_SHA256.json') -Encoding UTF8
+@($sourcePath,$generated,(Join-Path $PSScriptRoot 'OperatorLayoutFixture61.cs'),(Join-Path $root 'out\EndfieldDoK.MapUnitLab.dll')) | Where-Object {Test-Path -LiteralPath $_} | ForEach-Object {Get-FileHash -LiteralPath $_ -Algorithm SHA256} | Select-Object Path,Hash | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $audit 'VERIFIED_OPERATOR_LAYOUT_SHA256.json') -Encoding UTF8

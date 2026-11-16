@@ -332,6 +332,7 @@ namespace EndfieldDoK.MapUnitLab
             if(Ready&&View==view&&Entity.Equals(view.EntityID)&&Binding==binding&&BoundGeometryRoot==binding.GeometryRoot)return;
             try
             {
+            EndfieldDoK.ModelIntake.RhodesRigidBatches.RebindLive(binding.GeometryRoot);
             FactionTrackLiveRig tracks=FactionTrackLoader.RebindLive(binding.GeometryRoot,binding.UnitKey);
             if(Ready)BvmNativeState.Unbind(Entity);
             if(ArtilleryMotion!=null)ArtilleryMotion.Reset();

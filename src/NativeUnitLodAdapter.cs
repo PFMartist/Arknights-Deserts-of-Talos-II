@@ -76,19 +76,38 @@ namespace EndfieldDoK.MapUnitLab
                 combined[level].fadeTransitionWidth=nativeLevels[level].fadeTransitionWidth;
             }
             bool nativeEnabled=native.enabled,authoredEnabled=authored.enabled;
+            Vector3 nativeReference=native.localReferencePoint,authoredReference=authored.localReferencePoint;
+            float nativeSize=native.size,authoredSize=authored.size;
+            // Preserve the authored distance reference, independently of each
+            // renderer's conservative animation/culling bounds. Recalculating
+            // from one-bone skins here would undo the builder's tight reference
+            // and keep detailed geometry active much farther from the camera.
+            float transferredSize=authoredSize*UniformScale(authored.transform.lossyScale)/UniformScale(native.transform.lossyScale);
+            Vector3 transferredReference=native.transform.InverseTransformPoint(authored.transform.TransformPoint(authoredReference));
+            if(transferredSize<=0f||float.IsNaN(transferredSize)||float.IsInfinity(transferredSize)||
+                float.IsNaN(transferredReference.sqrMagnitude)||float.IsInfinity(transferredReference.sqrMagnitude))
+                throw new InvalidOperationException("Authored LOD distance reference is invalid");
             try
             {
                 // Do not leave a renderer registered with two active groups.
                 authored.SetLODs(new LOD[0]);authored.enabled=false;
-                native.SetLODs(combined);native.RecalculateBounds();native.enabled=true;
+                native.SetLODs(combined);native.localReferencePoint=transferredReference;native.size=transferredSize;native.enabled=true;
             }
             catch
             {
-                try{native.SetLODs(nativeLevels);native.enabled=nativeEnabled;}catch{}
-                try{authored.SetLODs(authoredLevels);authored.enabled=authoredEnabled;}catch{}
+                try{native.SetLODs(nativeLevels);native.localReferencePoint=nativeReference;native.size=nativeSize;native.enabled=nativeEnabled;}catch{}
+                try{authored.SetLODs(authoredLevels);authored.localReferencePoint=authoredReference;authored.size=authoredSize;authored.enabled=authoredEnabled;}catch{}
                 throw;
             }
             return native;
+        }
+
+        static float UniformScale(Vector3 scale)
+        {
+            if(float.IsNaN(scale.sqrMagnitude)||float.IsInfinity(scale.sqrMagnitude)||scale.x<=0f||scale.y<=0f||scale.z<=0f||
+                Math.Abs(scale.x-scale.y)>.001f||Math.Abs(scale.x-scale.z)>.001f)
+                throw new InvalidOperationException("Native LOD adoption requires positive uniform-scale wrappers");
+            return Math.Max(scale.x,Math.Max(scale.y,scale.z));
         }
     }
 }

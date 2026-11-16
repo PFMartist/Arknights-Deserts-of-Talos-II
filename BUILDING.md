@@ -1,27 +1,30 @@
 # 构建说明
 
+当前源码修订为 **Hotfix64**，`src` 中包含 301 份 C# 文件。主构建生成 Runtime、预加载 Patcher 和编译记录，玩家启动器 EXE 使用单独的构建入口。
+
 ## 环境与外部依赖
 
 - Windows x64，Windows PowerShell 5.1 或 Windows 上的 PowerShell 7。
-- Windows .NET Framework 4.x 自带的 `csc.exe`。脚本使用游戏自己的旧 Mono 标准程序集作为目标引用，而不是宿主 .NET 运行库。
-- 自备的《家园：卡拉克沙漠》受支持安装，当前目标为 Steam build **12339551**、Unity **5.2.2f1**。
-- BepInEx **5.4.23.4 Windows x64** 解压目录或其 `BepInEx`／`core` 目录，至少包含 `BepInEx.dll`、`BepInEx.Preloader.dll`、`Mono.Cecil.dll`。来源与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+- Windows .NET Framework 4.x 自带的 `csc.exe`。
+- 自备《家园：卡拉克沙漠》安装的 `Data/Managed`。当前目标为 Steam build **12339551**、Unity **5.2.2f1**。
+- BepInEx **5.4.23.4 Windows x64** 的 `core` 文件，至少包含 `BepInEx.dll`、`BepInEx.Preloader.dll` 和 `Mono.Cecil.dll`。
 
-这些游戏和加载器二进制不包含在源码仓库内，也不应提交到 PR。请使用来源可靠的原版安装或上游发行包，不能通过重命名文件绕过版本检查。
+游戏编译引用与加载器文件由开发者在本地提供。依赖来源与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 ## 目录与命令
 
 ```text
 repository/
   src/                 # Runtime 与预加载 Patcher 源码
-  launcher/            # 玩家启动器及安装/校验/卸载脚本源码
-  tests/               # 可公开的纯策略／元数据测试
-  licenses/            # 保留的第三方许可原文
+  launcher/            # 玩家启动器脚本和 EXE 入口源码
+    launcher-src/
+  tests/               # 源码与元数据回归入口
+  licenses/            # 第三方许可原文
   build.ps1
   out/                 # 本地生成，Git 忽略
 ```
 
-从仓库根目录执行：
+从仓库根目录执行以下命令。
 
 ```powershell
 $GameRoot = Read-Host '游戏安装目录'
@@ -29,15 +32,13 @@ $BepInExRoot = Read-Host 'BepInEx 解压目录'
 .\build.ps1 -GameRoot $GameRoot -BepInExRoot $BepInExRoot -OutRoot '.\out'
 ```
 
-参数说明：
-
 | 参数 | 含义 |
 | --- | --- |
 | `GameRoot` | 游戏根目录，其下应存在 `Data\Managed`。必填。 |
 | `BepInExRoot` | BepInEx 解压根目录、`BepInEx` 目录或 `core` 目录。省略时读取游戏根目录下的 `BepInEx`。 |
-| `OutRoot` | 编译输出目录。默认是仓库根目录的 `out`，不能指向游戏目录或源码目录。 |
+| `OutRoot` | 默认是仓库根目录的 `out`。选用位于游戏、源码和外部加载器目录之外的独立输出目录。 |
 
-输出：
+构建输出采用以下布局。
 
 ```text
 out/
@@ -48,42 +49,47 @@ out/
   build-info.json
 ```
 
-两个响应文件含本机绝对路径，仅用于本地复查，已由 `.gitignore` 排除。构建记录包含输入/输出哈希和相对文件名，不记录本机游戏路径。旧编译器不提供现代确定性构建开关，因此相同源码的独立构建不承诺生成逐字节相同的 DLL。
+响应文件包含本机编译输入路径，供本地复查，已由 `.gitignore` 排除。`build-info.json` 记录相对文件名、输入与输出哈希、源码修订和编译状态。旧编译器生成的 DLL 应使用对应构建记录核对源码与依赖。
 
-## 编译约定
+## 编译与版本约定
 
-Runtime 引用游戏的 `mscorlib.dll`、`System.dll`、`System.Core.dll`、Unity、Fabric、NGUI 和 BBI 程序集。Patcher 使用相同标准程序集及本地 BepInEx／Mono.Cecil 引用。均启用 `/nostdlib+`、优化和 `/warnaserror+`；不得通过移除这些参数掩盖不兼容警告。
+Runtime 引用游戏的旧 Mono 标准程序集、Unity、Fabric、NGUI 和 BBI 程序集。Patcher 同时引用本地 BepInEx 与 Mono.Cecil。两个目标均启用 `/nostdlib+`、优化和 `/warnaserror+`。
 
-Patcher 当前接线的目标为：
+构建脚本先核对受支持原生程序集的 SHA-256。Patcher 当前接线目标为以下程序集。
 
 - `BBI.Unity.Game.dll`
 - `BBI.Game.dll`
 - `BBI.Unity.Game.Data.dll`
 
-最后一项包含受控资产创建时的初始化顺序保护。修改目标列表、原生签名或支持版本时，需要同步检查对应的 SHA-256 守卫、Runtime 接口和离线 Patcher 测试。新 Runtime 与旧 Patcher 不能随意混搭。
+其中包括受控资产创建时的初始化顺序保护。调整目标列表、原生签名或支持版本时，应同步更新版本守卫、Runtime 接口与 Patcher 回归。
 
-Hotfix62 的母舰导航调整在 Runtime 的私有数据准备中读取原版联盟母舰参数，没有增加新的原生 IL 接线。此前匹配的 Patcher 保持不变；这不表示可以跳过版本和程序集哈希守卫。导航净空、逻辑包络与转弯参数不再从显示模型的包围尺寸推导。
+Hotfix63–64 延续当前 Patcher 接线。新增的车辆、飞机与母舰合批，以及 LOD 距离参考传递，位于 Runtime 的表现层。导航与物理占地继续由原有单位定义及原生模拟管理。
 
-脚本不会修改、安装、启动或结束游戏进程。若在已运行的游戏旁构建，新 DLL 也不会自动进入当前进程。
+## 玩家启动器
 
-## 素材与本地运行
+当前玩家启动器版本为 **62.4**。它以 `RhodesMod.exe` 为主要入口，由 EXE 调用 Windows PowerShell 5.1 执行同目录脚本。目录选择、安装进度、成功提示、免费发布声明与各动作的输出由脚本管理。
 
-源码编译不会产生模型、贴图、动画、图集或音频。要进行游戏测试，还需与当前代码匹配的完整资源包和玩家启动器。资源包的发布、哈希与许可范围应单独记录；不要把第三方资源复制进 `src` 或测试夹具来让 CI 通过。
+启动器 EXE 的构建需要完整玩家包中的图标文件。从仓库根目录执行以下命令。
 
-使用完整玩家包进行本地测试时，应先退出游戏，保留已知可用版本及回滚记录，再按该包的更新说明部署匹配的 Runtime／Patcher。构建输出本身不是完整安装器。
+```powershell
+$PlayerPackage = Read-Host '完整玩家包目录'
+.\launcher\launcher-src\Build.ps1 -IconPath (Join-Path $PlayerPackage 'RhodesMod.ico')
+```
 
-### 玩家包中的启动器
+该入口生成 `launcher/RhodesMod.exe`，并将指定图标复制到 `launcher/RhodesMod.ico`。这两个生成文件由 Git 忽略。对应 C# 入口与构建脚本保存在 `launcher/launcher-src`。
 
-[launcher](launcher/README.md) 包含启动器脚本源码。组装玩家包时，将其中4份 PowerShell 源文件和6份 `.cmd` 入口复制到玩家包根目录，与该版本生成的 `release.json`、`payload` 及使用说明放在一起。缺少清单或完整资源时，这些入口不能当作可玩发行包使用。
+组装完整玩家包时，将 EXE、图标、4 份 PowerShell 文件和 6 份 CMD 入口放在包根目录，再配套相应的 `release.json`、完整 `payload`、使用说明和许可文件。具体布局见 [launcher/README.md](launcher/README.md)。
 
-`release.json` 的受管文件路径应相对包根目录，SHA-256、原生版本及启动关键文件标记必须与实际 `payload` 一致；验包逻辑见 `launcher/RhodesPackage.psm1`。源码构建脚本不自动生成或下载资源包，也不会借用维护者本机的清单和目录。
+`release.json` 中的受管路径、SHA-256、原生版本和启动关键文件标记应与实际载荷一致。验包与部署逻辑位于 `launcher/RhodesPackage.psm1`。模型、贴图、动画、界面图集和音频来自对应的完整资源包，构建使用的游戏程序集与外部资源继续通过本地路径提供。
 
 ## 测试与验收
 
-可公开测试的运行方式见 [tests/README.md](tests/README.md)。纯策略测试不运行 Unity；元数据测试读取开发者本地提供的原生 DLL，但不会执行其中的游戏方法。
+所有公开测试入口及外部输入要求见 [tests/README.md](tests/README.md)。其中 `lod64` 直接编译当前 `NativeUnitLodAdapter` 和仓库内托管替身，覆盖距离参考传递、原生阈值、强制档位与失败回滚。
 
-提交验证结果时请明确层级：编译、离线策略/IL、隔离安装事务、实际初始化、操作行为、画面和用户验收。发布前的实际测试应覆盖进入菜单、罗德岛遭遇战、生产科研、飞机起降、干员技能与收纳、残骸、结束后再开第二局。没有实际执行的项目保持待测。
+```powershell
+.\tests\lod64\Test-NativeLodBounds64.ps1
+```
 
-Hotfix59阶段的14张原版遭遇战地图检查属于离线导航缓存与参数对照，不是14局游戏验收。Hotfix62已完成离线核对和安装文件校验，但安装校验不会启动游戏，也不能证明新导航在所有地形中正常。Hotfix60的平衡与维修支援语音、Hotfix61的选择UI及动画优化，仍需区分代码回归结果与实际操作、听感、视觉和FPS记录。
+母舰原曲线、网格与材质的完整资源检查由维护者按版本单独记录。公开源码测试的结果按各自入口的范围说明解释。
 
-完整玩家包的发布项目前保持草稿，尚未公开。本地构建、测试通过或安装成功均不会自动发布包、上传附件或改变发布状态。热负荷14时的预警属于当前已有的19点极限／5点余量配置；Hotfix62没有修改热机制或热播报。
+记录验证结果时，应注明编译、源码策略或 IL、真实托管算法、安装事务、游戏初始化、操作行为、画面与用户验收。当前版本的 Unity GPU 蒙皮、镜头下的 LOD 交接、飞机起降、干员技能、残骸与第二局行为，依照实际测试记录确认。当前下载与发布状态以 [Releases](https://github.com/PFMartist/Arknights-Deserts-of-Talos-II/releases) 页面为准。

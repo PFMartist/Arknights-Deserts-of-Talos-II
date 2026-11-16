@@ -3,4 +3,6 @@ src/*.cs -text whitespace=cr-at-eol
 launcher/*.ps1 -text whitespace=cr-at-eol
 launcher/*.psm1 -text whitespace=cr-at-eol
 launcher/*.cmd -text whitespace=cr-at-eol
+launcher/launcher-src/*.cs -text whitespace=cr-at-eol
+launcher/launcher-src/*.ps1 -text whitespace=cr-at-eol
 build.ps1 whitespace=cr-at-eol

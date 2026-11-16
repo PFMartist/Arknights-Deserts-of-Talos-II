@@ -160,12 +160,39 @@ namespace EndfieldDoK.ModelIntake
                 // alias against the exact LOD1 node/material before allocating.
                 Dictionary<string,bool> farReplacements=CollectPerformanceFarReplacements(package);
                 bool performanceLods=farReplacements.Count>0;
-                int meshIndex=0;
+                float rigidPadding;
+                List<RhodesRigidBatches.Batch> rigidBatches=RhodesRigidBatches.ReadPlan(folder,package,out rigidPadding);
+                int[] carrierMembership=GetLodMembership(package);
+                RhodesCarrierBatches.Plan carrierBatches=RhodesCarrierBatches.ReadPlan(folder,package,carrierMembership);
+                if(rigidBatches!=null&&carrierBatches!=null)throw new InvalidDataException("Conflicting model batch modes");
+                if(carrierBatches!=null)
+                {
+                    for(int batchIndex=0;batchIndex<carrierBatches.Batches.Count;batchIndex++)
+                    {
+                        RhodesCarrierBatches.Batch batch=carrierBatches.Batches[batchIndex];
+                        Renderer renderer=RhodesCarrierBatches.Build(result,materials,batch,batchIndex,geometryLayer);all.Add(renderer);
+                        for(int level=0;level<4;level++)if((batch.Mask&(1<<level))!=0){lods[level].Add(renderer);highest=Math.Max(highest,level);}
+                        yield return null;
+                    }
+                }
+                if(rigidBatches!=null)
+                {
+                    for(int batchIndex=0;batchIndex<rigidBatches.Count;batchIndex++)
+                    {
+                        RhodesRigidBatches.Batch batch=rigidBatches[batchIndex];
+                        Renderer renderer=RhodesRigidBatches.Build(result,materials,batch,batchIndex,geometryLayer,rigidPadding);
+                        all.Add(renderer);lods[batch.Lod].Add(renderer);highest=Math.Max(highest,batch.Lod);yield return null;
+                    }
+                }
+                int meshIndex=0,sourceMeshIndex=-1;
                 foreach(RhodesMesh data in package.Meshes)
                 {
+                    sourceMeshIndex++;
+                    if(carrierBatches!=null&&carrierBatches.Covered[sourceMeshIndex])continue;
+                    if(rigidBatches!=null&&!RhodesRigidBatches.RequiresRigidRenderer(package,data.Node))continue;
                     bool authoredCarrierMesh=IsSourceCarrierMesh(data.Name);
                     bool tangents=RhodesPbrMaterials.RequiresTangents(package.Materials[data.Material],result.PbrMaterials);
-                    string meshKey=package.ContentSha256+"|mesh:"+(meshIndex++)+"|tangent:"+tangents;
+                    string meshKey=package.ContentSha256+(carrierBatches!=null?"|carrier-residual-v1:":rigidBatches==null?"|mesh:":"|rigid-residual-v1:")+(meshIndex++)+"|tangent:"+tangents;
                     Mesh mesh=RhodesSharedResources.Mesh(meshKey,result,delegate
                     {
                     int count=data.Vertices.Length/10;Vector3[] positions=new Vector3[count],normals=new Vector3[count];Vector2[] uv=new Vector2[count],uv1=new Vector2[count];
@@ -238,7 +265,10 @@ namespace EndfieldDoK.ModelIntake
                     if(result.Root==null)throw new InvalidOperationException("Owned model root retired during incremental construction");
                     LODGroup group=result.Root.AddComponent<LODGroup>();LOD[] levels=new LOD[highest+1];float[] thresholds=performanceLods?new float[]{.32f,.10f,.03f,.01f}:new float[]{.6f,.25f,.08f,.01f};
                     for(int index=0;index<levels.Length;index++)levels[index]=new LOD(index==highest?.00001f:thresholds[index],lods[index].ToArray());
-                    group.SetLODs(levels);group.RecalculateBounds();result.LodGroup=group;
+                    group.SetLODs(levels);group.RecalculateBounds();
+                    // Swept skin bounds must not inflate distance-based LOD selection.
+                    if(rigidBatches!=null||carrierBatches!=null){group.localReferencePoint=result.PresentationBounds.center;Vector3 size=result.PresentationBounds.size;group.size=Math.Max(size.x,Math.Max(size.y,size.z));}
+                    result.LodGroup=group;
                 }
                 foreach(RhodesModule module in package.Modules)
                 {
@@ -254,6 +284,18 @@ namespace EndfieldDoK.ModelIntake
                 job.Publish(result);completed=true;
             }
             finally{if(!completed)result.Dispose();}
+        }
+        internal static int[] GetLodMembership(RhodesModelPackage package)
+        {
+            Dictionary<string,bool> replacements=CollectPerformanceFarReplacements(package);bool performance=replacements.Count>0;
+            int[] result=new int[package.Meshes.Length];
+            for(int i=0;i<result.Length;i++)
+            {
+                RhodesMesh mesh=package.Meshes[i];int mask=mesh.Lod<0?0:1<<mesh.Lod;
+                if(performance&&mesh.Lod==1&&!IsSourceCarrierMesh(mesh.Name)&&!replacements.ContainsKey(mesh.Name)&&!OmitPerformanceFar(mesh,package))mask|=4;
+                result[i]=mask;
+            }
+            return result;
         }
         static Dictionary<string,bool> CollectPerformanceFarReplacements(RhodesModelPackage package)
         {

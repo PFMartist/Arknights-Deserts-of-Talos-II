@@ -53,6 +53,9 @@ doorstop_config.ini
 *.pth
 *.safetensors
 
+# Launcher icon copied from the separately distributed player package
+/launcher/RhodesMod.ico
+
 # Local settings and credentials
 .env
 .env.*

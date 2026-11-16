@@ -54,13 +54,6 @@ namespace EndfieldDoK.MapUnitLab
         object PendingScene;PlayerCustomizationPreviewController PendingController;Material PendingMaterial;int PendingLayer;
         System.Diagnostics.Stopwatch PendingWatch;int PendingFrames,PendingSteps;
         UILabel LoadingLabel;
-        Camera PreviewCamera;
-        Vector3 MetreScale;
-        float LastScale=-1f;
-        Bounds NativeReferenceBounds;
-        Vector3 ModelGroundPivot;
-        Vector3[] FixedWorldOffsets;
-        double[] CameraOffsets;
         RhodesFleetTab Tab;
         bool InitialContextEvaluated;
         readonly List<GameObject> Hidden=new List<GameObject>();
@@ -97,7 +90,7 @@ namespace EndfieldDoK.MapUnitLab
                 {InitialContextEvaluated=true;if(RhodesSkirmishFaction.IsRhodesCustomization(Panel))Tab.Select();}
                 if(!Tab.Selected){Release(true);return;}
                 List<GameObject> instances=NativeRead.Get(scene,"mInstancedPreviews") as List<GameObject>;
-                if(Wrapper!=null&&ReferenceEquals(scene,Scene)&&instances!=null&&instances.Contains(Wrapper)){UpdateFraming();return;}
+                if(Wrapper!=null&&ReferenceEquals(scene,Scene)&&instances!=null&&instances.Contains(Wrapper))return;
                 Release(true);Build(scene,controller);
             }
             catch(Exception error)
@@ -131,8 +124,8 @@ namespace EndfieldDoK.MapUnitLab
                 {GameObject root=NativeRead.Get(model,"Model") as GameObject;if(root!=null&&!candidates.Contains(root))candidates.Add(root);}
             }
             foreach(GameObject root in instances)if(root!=null&&!candidates.Contains(root))candidates.Add(root);
-            List<GameObject> originals=new List<GameObject>();GameObject donor=null;Material material=null;
-            Bounds donorBounds=new Bounds(),fleetBounds=new Bounds();bool anyFleet=false;float largest=0f;int layer=spawn.layer;
+            List<GameObject> originals=new List<GameObject>();Material material=null;
+            float largest=0f;int layer=spawn.layer;
             foreach(GameObject root in candidates)
             {
                     if(root==null||!root.activeInHierarchy)continue;
@@ -147,38 +140,31 @@ namespace EndfieldDoK.MapUnitLab
                         {candidate=source;candidateLayer=renderer.gameObject.layer;}
                     }
                     if(!any)continue;
-                    originals.Add(root);if(!anyFleet){fleetBounds=bounds;anyFleet=true;}else fleetBounds.Encapsulate(bounds);
+                    originals.Add(root);
                     float size=bounds.extents.sqrMagnitude;
                     if(candidate!=null&&size>largest)
-                    {largest=size;donor=root;material=candidate;donorBounds=bounds;layer=candidateLayer;}
+                    {largest=size;material=candidate;layer=candidateLayer;}
             }
-            if(donor==null||material==null)return;
-            if(anyFleet)donorBounds=fleetBounds;
+            if(material==null)return;
             Scene=scene;Controller=controller;
             RhodesFleetPreviewModel loaded=null;bool owned=false;
             try
             {
-                Vector3 screenRight=camera.transform.right;screenRight.y=0f;screenRight.Normalize();
-                Vector3 foreground=Vector3.Cross(Vector3.up,screenRight);
-                if(Vector3.Dot(foreground,camera.transform.position-donorBounds.center)<0f)foreground=-foreground;
-                Quaternion inverseHeading=Quaternion.Inverse(donor.transform.rotation);
+                RhodesFleetPlacement[] placements=CaptureCoalitionPlacements(sets,spawn.transform.position.y,camera);
                 bool cacheHit;
                 System.Diagnostics.Stopwatch modelTime=System.Diagnostics.Stopwatch.StartNew();
-                loaded=AcquireModel(scene,controller,material,layer,inverseHeading*screenRight,inverseHeading*foreground,out cacheHit);
+                loaded=AcquireModel(scene,controller,material,layer,placements,out cacheHit);
                 modelTime.Stop();if(loaded==null)return;
-                Bounds bounds=loaded.PresentationBounds;
                 Wrapper=new GameObject("EF_Rhodes_CustomizationPreview");Wrapper.layer=layer;
                 Wrapper.transform.parent=spawn.transform;
-                // The native custom-spawn Y is the authored platform plane.
-                // A taller model must grow upward instead of sinking when fit.
-                Wrapper.transform.position=new Vector3(donorBounds.center.x,spawn.transform.position.y,donorBounds.center.z);
-                Wrapper.transform.rotation=donor.transform.rotation;Wrapper.transform.localScale=Vector3.one;
+                // Models already use captured native world-space slot poses.
+                // Cancel the scaled native spawn container in AttachInMetreSpace.
+                Wrapper.transform.position=Vector3.zero;
+                Wrapper.transform.rotation=Quaternion.identity;Wrapper.transform.localScale=Vector3.one;
                 loaded.AttachInMetreSpace(Wrapper.transform);
                 RhodesCustomizationPreviewOwner owner=Wrapper.AddComponent<RhodesCustomizationPreviewOwner>();
                 owner.Loaded=loaded;owner.NativeDestroyed=OnNativeModelDestroyed;ViewOwner=owner;owned=true;
-                PreviewModel=loaded;PreviewCamera=camera;MetreScale=loaded.Root.transform.localScale;
-                NativeReferenceBounds=donorBounds;ModelGroundPivot=new Vector3(bounds.center.x,bounds.min.y,bounds.center.z);
-                PrepareFixedOffsets(loaded.FramingBounds);LastScale=-1f;UpdateFraming();
+                PreviewModel=loaded;
                 loaded.Root.SetActive(true);
                 Type viewType=typeof(PlayerCustomizationPreviewController).Assembly.GetType("BBI.Unity.Game.UI.PlayerCustomizationUnitView",true);
                 Component view=Wrapper.AddComponent(viewType);
@@ -191,7 +177,7 @@ namespace EndfieldDoK.MapUnitLab
                 foreach(GameObject original in originals)
                 {original.SetActive(false);overridden.Add(original);Hidden.Add(original);}
                 Runtime.Log("RHODES_CUSTOMIZATION_PREVIEW_READY nativeColors=True; fixedCamera=True; addedRotation=False; allRenderers="+loaded.Renderers.Length+
-                    "; nativeCleanupLists=True; scale="+LastScale+"; independentFifthPage=True; fleetModels=12; battleFrameWork=False; visualAcceptancePending=True");
+                    "; nativeCleanupLists=True; layout=LiveCoalitionSlots; nativeRootScales=True; independentOversizeClamp=True; viewportMargin=.02; aggregateRescale=False; independentFifthPage=True; fleetModels=12; battleFrameWork=False; visualAcceptancePending=True");
                 buildTime.Stop();
                 if(CacheReports++<8)Runtime.Log("RHODES_FLEET_PREVIEW_CACHE cacheHit="+cacheHit+"; modelAcquireMS="+modelTime.ElapsedMilliseconds+
                     "; totalBuildMS="+buildTime.ElapsedMilliseconds+"; lifetime=OpenCustomizationPanel; resourcesReloaded="+(!cacheHit)+"; coldLoadStillSynchronous=False; immutableResourcesShared=True");
@@ -204,52 +190,44 @@ namespace EndfieldDoK.MapUnitLab
             }
         }
 
-        static Vector3 Corner(Bounds bounds,int index)
-        {Vector3 half=bounds.extents;return bounds.center+new Vector3((index&1)==0?-half.x:half.x,(index&2)==0?-half.y:half.y,(index&4)==0?-half.z:half.z);}
-
-        void PrepareFixedOffsets(Bounds[] boxes)
+        internal static RhodesFleetPlacement[] CaptureCoalitionPlacements(Array sets,float groundY,Camera camera)
         {
-            if(boxes==null||boxes.Length<2||boxes.Length>17)throw new InvalidDataException("Fixed fleet framing needs two to seventeen model bounds");
-            FixedWorldOffsets=new Vector3[boxes.Length*8];CameraOffsets=new double[FixedWorldOffsets.Length*3];
-            for(int model=0;model<boxes.Length;model++)for(int corner=0;corner<8;corner++)
-                FixedWorldOffsets[model*8+corner]=Wrapper.transform.TransformVector(Vector3.Scale(Corner(boxes[model],corner)-ModelGroundPivot,MetreScale));
-        }
-
-        void UpdateFraming()
-        {
-            if(PreviewModel==null||PreviewModel.Root==null||PreviewCamera==null||Wrapper==null)return;
-            Vector3 centre=PreviewCamera.transform.InverseTransformPoint(Wrapper.transform.position);
-            float left=1f,right=0f,bottom=1f,top=0f;
-            for(int i=0;i<8;i++)
+            if(sets==null||sets.Length==0||float.IsNaN(groundY)||float.IsInfinity(groundY))
+                throw new InvalidDataException("Coalition preview set or platform plane is missing");
+            // Native CustomizationFactionSetting.Coalition is index zero.
+            // Read its authored roots even when the current skin hides them.
+            IEnumerable models=NativeRead.Get(sets.GetValue(0),"Models") as IEnumerable;
+            if(models==null)throw new InvalidDataException("Coalition preview models are missing");
+            Dictionary<string,Transform> roots=new Dictionary<string,Transform>(StringComparer.Ordinal);
+            RhodesFleetCamera cameraSnapshot=new RhodesFleetCamera(camera);
+            foreach(object model in models)
             {
-                Vector3 point=PreviewCamera.WorldToViewportPoint(Corner(NativeReferenceBounds,i));
-                if(point.z<=PreviewCamera.nearClipPlane)throw new InvalidDataException("Native reference bounds cross the preview near plane");
-                left=Math.Min(left,point.x);right=Math.Max(right,point.x);bottom=Math.Min(bottom,point.y);top=Math.Max(top,point.y);
+                GameObject root=NativeRead.Get(model,"Model") as GameObject;if(root==null)continue;
+                if(roots.ContainsKey(root.name))throw new InvalidDataException("Duplicate Coalition preview slot: "+root.name);
+                roots.Add(root.name,root.transform);
             }
-            // Match the native fleet envelope, with a small screen-edge margin.
-            left=Math.Max(.04f,Math.Min(.25f,left));right=Math.Min(.96f,Math.Max(.75f,right));
-            bottom=Math.Max(.04f,Math.Min(.25f,bottom));top=Math.Min(.96f,Math.Max(.75f,top));
-            for(int i=0;i<FixedWorldOffsets.Length;i++)
+            RhodesFleetPlacement[] result=new RhodesFleetPlacement[RhodesFleetModels.NativeSlots.Length];
+            for(int i=0;i<result.Length;i++)
             {
-                Vector3 offset=PreviewCamera.transform.InverseTransformVector(FixedWorldOffsets[i]);
-                CameraOffsets[i*3]=offset.x;CameraOffsets[i*3+1]=offset.y;CameraOffsets[i*3+2]=offset.z;
+                string name=RhodesFleetModels.NativeSlots[i];Transform root;
+                if(!roots.TryGetValue(name,out root))throw new InvalidDataException("Missing Coalition preview slot: "+name);
+                Vector3 scale=root.lossyScale,position=root.position;Quaternion rotation=root.rotation;
+                float finite=position.sqrMagnitude+scale.sqrMagnitude+rotation.x*rotation.x+rotation.y*rotation.y+rotation.z*rotation.z+rotation.w*rotation.w;
+                if(float.IsNaN(finite)||float.IsInfinity(finite)||scale.x<=0f||scale.y<=0f||scale.z<=0f||
+                    Math.Abs(scale.x-scale.y)>.001f||Math.Abs(scale.x-scale.z)>.001f||Vector3.Dot(rotation*Vector3.up,Vector3.up)<.999f)
+                    throw new InvalidDataException("Coalition preview slot requires a finite, upright, uniform-scale pose: "+name);
+                result[i]=new RhodesFleetPlacement(name,position,rotation,scale.x,groundY,cameraSnapshot);
             }
-            double scale=RhodesPreviewFraming.FitFixedScale(centre.x,centre.y,centre.z,CameraOffsets,
-                Math.Tan(PreviewCamera.fieldOfView*Math.PI/360.0),PreviewCamera.aspect,PreviewCamera.orthographicSize,
-                PreviewCamera.orthographic,PreviewCamera.nearClipPlane,PreviewCamera.farClipPlane,left,right,bottom,top);
-            if(scale<=0||scale>float.MaxValue)throw new InvalidDataException("Fixed fleet bounds do not fit the native preview camera");
-            if(Math.Abs(scale-LastScale)<.000001f)return;LastScale=(float)scale;
-            PreviewModel.Root.transform.localScale=MetreScale*LastScale;
-            PreviewModel.Root.transform.localPosition=-Vector3.Scale(ModelGroundPivot,PreviewModel.Root.transform.localScale);
+            return result;
         }
 
         RhodesFleetPreviewModel AcquireModel(object scene,PlayerCustomizationPreviewController controller,Material material,int layer,
-            Vector3 right,Vector3 foreground,out bool cacheHit)
+            RhodesFleetPlacement[] placements,out bool cacheHit)
         {
             cacheHit=CachedModel!=null&&CachedModel.Root!=null&&ReferenceEquals(CacheScene,scene)&&CacheController==controller&&CacheMaterial==material&&CacheLayer==layer;
             if(cacheHit)return CachedModel;
             DisposeCachedModel();CancelPendingLoad();
-            PendingLoad=RhodesFleetModels.BeginLoad(material,layer,right,foreground);
+            PendingLoad=RhodesFleetModels.BeginLoad(material,layer,placements);
             PendingScene=scene;PendingController=controller;PendingMaterial=material;PendingLayer=layer;
             PendingWatch=System.Diagnostics.Stopwatch.StartNew();PendingFrames=PendingSteps=0;ShowLoading();
             return null;
@@ -363,7 +341,7 @@ namespace EndfieldDoK.MapUnitLab
                 }
                 UnityEngine.Object.Destroy(Wrapper);
             }
-            Wrapper=null;Scene=null;Controller=null;ViewOwner=null;PreviewModel=null;PreviewCamera=null;FixedWorldOffsets=null;CameraOffsets=null;LastScale=-1f;Registered=false;Hidden.Clear();
+            Wrapper=null;Scene=null;Controller=null;ViewOwner=null;PreviewModel=null;Registered=false;Hidden.Clear();
             if(!preserveCache)DisposeCachedModel();
         }
     }

@@ -52,37 +52,73 @@ namespace EndfieldDoK.MapUnitLab
         }
     }
 
+    internal sealed class RhodesFleetCamera
+    {
+        internal readonly Matrix4x4 WorldToView;
+        internal readonly double VerticalTan,Aspect,OrthoSize,Near,Far;
+        internal readonly bool Orthographic;
+
+        internal RhodesFleetCamera(Camera camera)
+        {
+            if(camera==null)throw new ArgumentNullException("camera");
+            WorldToView=Matrix4x4.TRS(camera.transform.position,camera.transform.rotation,Vector3.one).inverse;
+            VerticalTan=Math.Tan(camera.fieldOfView*Math.PI/360.0);Aspect=camera.aspect;
+            OrthoSize=camera.orthographicSize;Near=camera.nearClipPlane;Far=camera.farClipPlane;Orthographic=camera.orthographic;
+        }
+    }
+
+    internal sealed class RhodesFleetPlacement
+    {
+        internal readonly string NativeName;
+        internal readonly Vector3 Position;
+        internal readonly Quaternion Rotation;
+        internal readonly float Scale,GroundY;
+        internal readonly RhodesFleetCamera Camera;
+
+        internal RhodesFleetPlacement(string nativeName,Vector3 position,Quaternion rotation,float scale,float groundY)
+            :this(nativeName,position,rotation,scale,groundY,null){}
+        internal RhodesFleetPlacement(string nativeName,Vector3 position,Quaternion rotation,float scale,float groundY,RhodesFleetCamera camera)
+        {NativeName=nativeName;Position=position;Rotation=rotation;Scale=scale;GroundY=groundY;Camera=camera;}
+    }
+
     public static class RhodesFleetModels
     {
         static readonly string[] Keys={"RI_U01_HARVESTER","RI_U02_FIELD_SURVEY","RI_U03_ENGINEERING","RI_U05_SUPPRESSION",
             "RI_U04_LIGHT_ESCORT","RI_U06_RAILGUN","RI_U07_AIR_DEFENCE","RI_U09_ARTILLERY",
             "RI_U08_TILT_STRIKE","EF_Rhodes_Interceptor_MP","EF_Rhodes_HeavyBomber_MP"};
 
-        public static RhodesFleetPreviewModel Load(Material template,int layer,Vector3 viewRightLocal,Vector3 foregroundLocal)
+        // Slots come from the live Coalition preview set in the same order as
+        // carrier, then Keys. Former cruiser slots retain our medium geometry.
+        internal static readonly string[] NativeSlots={"C_Carrier_MP","C_Harvester_MP","C_Baserunner_MP","C_SupportCruiser_MP",
+            "C_HAC_MP","C_Escort_MP","C_Railgun_MP","C_HAC_Upgrade01_MP","C_ArtilleryCruiser_MP",
+            "C_GunShip_MP","C_Interceptor_MP","C_Bomber_MP"};
+
+        internal static RhodesFleetPreviewModel Load(Material template,int layer,RhodesFleetPlacement[] placements)
         {
-            using(RhodesFleetBuildJob job=BeginWithScheduling(template,layer,viewRightLocal,foregroundLocal,false))
+            using(RhodesFleetBuildJob job=BeginWithScheduling(template,layer,placements,false))
             {while(job.Step()){}return job.TakeResult();}
         }
-        public static RhodesFleetBuildJob BeginLoad(Material template,int layer,Vector3 viewRightLocal,Vector3 foregroundLocal)
-        {return BeginWithScheduling(template,layer,viewRightLocal,foregroundLocal,true);}
-        static RhodesFleetBuildJob BeginWithScheduling(Material template,int layer,Vector3 viewRightLocal,Vector3 foregroundLocal,bool queuedInput)
+        internal static RhodesFleetBuildJob BeginLoad(Material template,int layer,RhodesFleetPlacement[] placements)
+        {return BeginWithScheduling(template,layer,placements,true);}
+        static RhodesFleetBuildJob BeginWithScheduling(Material template,int layer,RhodesFleetPlacement[] placements,bool queuedInput)
         {
+            if(placements==null||placements.Length!=NativeSlots.Length)throw new ArgumentException("Fleet preview requires all Coalition slots");
+            placements=(RhodesFleetPlacement[])placements.Clone();
+            for(int i=0;i<placements.Length;i++)
+                if(placements[i]==null||placements[i].NativeName!=NativeSlots[i])throw new ArgumentException("Fleet preview slot order is invalid");
             RhodesFleetBuildJob job=new RhodesFleetBuildJob();
-            job.Initialize(BuildIncrementally(template,layer,viewRightLocal,foregroundLocal,queuedInput,job));return job;
+            job.Initialize(BuildIncrementally(template,layer,placements,queuedInput,job));return job;
         }
-        static IEnumerator BuildIncrementally(Material template,int layer,Vector3 viewRightLocal,Vector3 foregroundLocal,bool queuedInput,RhodesFleetBuildJob job)
+        static IEnumerator BuildIncrementally(Material template,int layer,RhodesFleetPlacement[] placements,bool queuedInput,RhodesFleetBuildJob job)
         {
             if(template==null)throw new ArgumentNullException("template");
             if(layer<0||layer>31)throw new ArgumentOutOfRangeException("layer");
-            ValidateDirections(ref viewRightLocal,ref foregroundLocal);
             RhodesFleetPreviewModel result=new RhodesFleetPreviewModel();
             result.Root=new GameObject("EF_Rhodes_FleetPreview");result.Root.SetActive(false);result.Root.layer=layer;
             result.Root.hideFlags=HideFlags.HideAndDontSave;
             List<Renderer> renderers=new List<Renderer>();bool completed=false;
             try
             {
-                RhodesLoadedModel[] vehicles=new RhodesLoadedModel[Keys.Length];
-                Bounds[] scaledBounds=new Bounds[Keys.Length];Bounds bounds=new Bounds();
                 result.FramingBounds=new Bounds[Keys.Length+1];
                 for(int index=-1;index<Keys.Length;index++)
                 {
@@ -97,24 +133,20 @@ namespace EndfieldDoK.MapUnitLab
                     }
                     result.Models.Add(model);model.AttachInMetreSpace(result.Root.transform);
                     if(model.LodGroup!=null)model.LodGroup.ForceLOD(1);model.Root.SetActive(true);
-                    if(index<0)
-                    {bounds=Place(model,Vector3.zero,1f);result.PresentationBounds=bounds;result.FramingBounds[0]=bounds;renderers.AddRange(model.Renderers);}
-                    else
-                    {
-                        vehicles[index]=model;if(aircraft)RhodesFleetPreviewPoses.ApplyDeckReady(model,file);
-                        scaledBounds[index]=ScaledBounds(model.PresentationBounds,1f);
-                    }
+                    if(aircraft)RhodesFleetPreviewPoses.ApplyDeckReady(model,file);
+                    RhodesFleetPlacement placement=placements[index+1];
+                    Bounds placed=Place(model,placement);result.FramingBounds[index+1]=placed;
+                    if(index<0)result.PresentationBounds=placed;
+                    else{Bounds aggregate=result.PresentationBounds;aggregate.Encapsulate(placed);result.PresentationBounds=aggregate;}
+                    renderers.AddRange(model.Renderers);
+                    Runtime.Log("RHODES_FLEET_PREVIEW_NATIVE_SLOT key="+(index<0?"RhodesCarrier":Keys[index])+"; native="+placement.NativeName+
+                        "; position="+placement.Position+"; rotation="+placement.Rotation+"; nativeScale="+placement.Scale+
+                        "; displayScale="+model.Root.transform.localScale.x+"; groundY="+placement.GroundY+"; placedBounds="+placed);
                     job.ModelsCompleted=index+2;yield return null;
                 }
-                Vector3[] positions=ComputeLayout(bounds,scaledBounds,viewRightLocal,foregroundLocal);
-                for(int i=0;i<Keys.Length;i++)
-                {
-                    Bounds placed=Place(vehicles[i],positions[i],1f);result.FramingBounds[i+1]=placed;
-                    Bounds aggregate=result.PresentationBounds;aggregate.Encapsulate(placed);result.PresentationBounds=aggregate;renderers.AddRange(vehicles[i].Renderers);
-                }
                 result.Renderers=renderers.ToArray();
-                Runtime.Log("RHODES_FLEET_PREVIEW_MODELS_READY models="+(Keys.Length+1)+"; cameraAlignedForegroundRows=True; rows=4_4_3; individualDisplayScale=1; aircraftGrounded=True"+
-                    "; aircraftDeckReadySourceFrame=45; poseBoundsFromUploadedMeshBounds=True; allModelsActualMetres=True; aggregateCameraFitOnly=True; gameplayScaleChanged=False; nativeTeamColours="+RhodesTeamColours.CustomColoursEnabled+"; staticLOD=1; registryRequired=False; battleCachePreserved=True; incrementalBuild=True; runtimeVisualAcceptancePending=True");
+                Runtime.Log("RHODES_FLEET_PREVIEW_MODELS_READY models="+(Keys.Length+1)+"; layout=LiveCoalitionSlots; nativeIndividualRotations=True; nativeRootScales=True; independentOversizeClamp=True; viewportMargin=.02; aircraftGrounded=True"+
+                    "; aircraftDeckReadySourceFrame=45; poseBoundsFromAuthoredVertices=True; rigidAndSkinnedPreviewCompatible=True; allModelsActualMetres=True; aggregateRescale=False; gameplayScaleChanged=False; nativeTeamColours="+RhodesTeamColours.CustomColoursEnabled+"; staticLOD=1; registryRequired=False; battleCachePreserved=True; incrementalBuild=True; runtimeVisualAcceptancePending=True");
                 job.Publish(result);completed=true;
             }
             finally{if(!completed)result.Dispose();}
@@ -125,78 +157,103 @@ namespace EndfieldDoK.MapUnitLab
             try{return job.Step();}finally{RhodesTrackLoader.RestoreTemplate(snapshot);}
         }
 
-        static void ValidateDirections(ref Vector3 right,ref Vector3 foreground)
+        internal static Bounds Place(RhodesLoadedModel model,RhodesFleetPlacement placement)
         {
-            if(float.IsNaN(right.sqrMagnitude+foreground.sqrMagnitude)||float.IsInfinity(right.sqrMagnitude+foreground.sqrMagnitude)||
-                Math.Abs(right.y)>.001f||Math.Abs(foreground.y)>.001f||right.sqrMagnitude<.0001f||foreground.sqrMagnitude<.0001f)
-                throw new ArgumentException("Preview layout needs two finite ground-plane directions");
-            right.Normalize();foreground.Normalize();
-            if(Math.Abs(Vector3.Dot(right,foreground))>.001f)throw new ArgumentException("Preview ground-plane directions must be orthogonal");
-        }
-
-        static float HalfSupport(Bounds bounds,Vector3 direction)
-        {return Math.Abs(direction.x)*bounds.extents.x+Math.Abs(direction.z)*bounds.extents.z;}
-
-        // Pure geometry used by Load. Row separating planes keep every
-        // vehicle beyond the hull footprint; column/row supports account for
-        // each model's actual (possibly preview-scaled) AABB dimensions.
-        internal static Vector3[] ComputeLayout(Bounds hull,Bounds[] vehicles,Vector3 right,Vector3 foreground)
-        {
-            if(vehicles==null||vehicles.Length<1||vehicles.Length>16)throw new ArgumentException("Fleet preview requires one to sixteen vehicle bounds");
-            ValidateDirections(ref right,ref foreground);
-            ScaledBounds(hull,1f);
-            float hullRight=HalfSupport(hull,right),hullFront=HalfSupport(hull,foreground);
-            float gap=Math.Max(10f,hullRight*.05f);
-            float[] halfWidth=new float[vehicles.Length];
-            int rowCount=(vehicles.Length+3)/4;
-            float[] rowHalfDepth=new float[rowCount];
-            for(int i=0;i<vehicles.Length;i++)
-            {
-                ScaledBounds(vehicles[i],1f);
-                halfWidth[i]=HalfSupport(vehicles[i],right);
-                rowHalfDepth[i/4]=Math.Max(rowHalfDepth[i/4],HalfSupport(vehicles[i],foreground));
-            }
-            float rowDistance=hullFront+gap+rowHalfDepth[0];
-            Vector3 centre=new Vector3(hull.center.x,0f,hull.center.z);
-            Vector3[] result=new Vector3[vehicles.Length];
-            for(int row=0;row<rowCount;row++)
-            {
-                int columns=Math.Min(4,vehicles.Length-row*4);
-                if(row>0)rowDistance=rowDistance+rowHalfDepth[row-1]+gap+rowHalfDepth[row];
-                float itemWidth=0f;for(int column=0;column<columns;column++)itemWidth+=2f*halfWidth[row*4+column];
-                float span=Math.Max(1.6f*hullRight,itemWidth+(columns-1)*gap);
-                float spacing=columns>1?(span-itemWidth)/(columns-1):0f;
-                float cursor=columns>1?-span*.5f:-halfWidth[row*4];
-                for(int column=0;column<columns;column++)
-                {
-                    int i=row*4+column;cursor+=halfWidth[i];
-                    result[i]=centre+right*cursor+foreground*rowDistance;
-                    cursor+=halfWidth[i]+spacing;
-                }
-            }
-            return result;
-        }
-
-        static Bounds ScaledBounds(Bounds original,float displayScale)
-        {
-            if(displayScale<=0f||float.IsNaN(displayScale)||float.IsInfinity(displayScale)||
-                original.size.x<=0f||original.size.y<=0f||original.size.z<=0f||float.IsNaN(original.extents.sqrMagnitude)||float.IsInfinity(original.extents.sqrMagnitude))
-                throw new InvalidDataException("Invalid fleet preview model bounds");
-            return new Bounds(original.center*displayScale,original.size*displayScale);
-        }
-
-        static Bounds Place(RhodesLoadedModel model,Vector3 position,float displayScale)
-        {
-            Bounds original=ScaledBounds(model.PresentationBounds,displayScale);
-            // The aggregate root has unit world scale while models are placed.
-            // This changes only private menu geometry, never the package or
-            // a battle template. Ground remains y=position.y for every scale.
-            model.Root.transform.localScale=Vector3.one*displayScale;
-            Vector3 offset=PlacementOffset(original,position);
+            if(model==null||model.Root==null||placement==null)throw new ArgumentNullException("model/placement");
+            Bounds original=model.PresentationBounds;
+            if(placement.Scale<=0f||float.IsNaN(placement.Scale)||float.IsInfinity(placement.Scale)||
+                original.size.x<=0f||original.size.y<=0f||original.size.z<=0f)
+                throw new InvalidDataException("Invalid fleet preview model bounds or native scale");
+            float scale=placement.Scale*ViewportScale(model,placement);
+            Bounds rotated=RotatedBounds(original,placement.Rotation,scale);
+            // Native pivots vary by unit. Align our own footprint centre and
+            // bottom to its slot and the authored showroom platform plane.
+            Vector3 offset=new Vector3(placement.Position.x-rotated.center.x,placement.GroundY-rotated.min.y,
+                placement.Position.z-rotated.center.z);
+            model.Root.transform.localRotation=placement.Rotation;
+            model.Root.transform.localScale=Vector3.one*scale;
             model.Root.transform.localPosition=offset;
-            return new Bounds(original.center+offset,original.size);
+            return new Bounds(rotated.center+offset,rotated.size);
         }
-        internal static Vector3 PlacementOffset(Bounds original,Vector3 position)
-        {return new Vector3(position.x-original.center.x,position.y-original.min.y,position.z-original.center.z);}
+
+        static Bounds RotatedBounds(Bounds original,Quaternion rotation,float scale)
+        {
+            Matrix4x4 pose=Matrix4x4.TRS(Vector3.zero,rotation,Vector3.one*scale);
+            Bounds rotated=new Bounds();bool first=true;
+            for(int corner=0;corner<8;corner++)
+            {
+                Vector3 point=pose.MultiplyPoint3x4(new Vector3((corner&1)==0?original.min.x:original.max.x,
+                    (corner&2)==0?original.min.y:original.max.y,(corner&4)==0?original.min.z:original.max.z));
+                if(float.IsNaN(point.sqrMagnitude)||float.IsInfinity(point.sqrMagnitude))throw new InvalidDataException("Nonfinite fleet preview pose");
+                if(first){rotated=new Bounds(point,Vector3.zero);first=false;}else rotated.Encapsulate(point);
+            }
+            return rotated;
+        }
+
+        static float ViewportScale(RhodesLoadedModel model,RhodesFleetPlacement placement)
+        {
+            RhodesFleetCamera camera=placement.Camera;if(camera==null)return 1f;
+            Bounds source=model.PresentationBounds;
+            Matrix4x4 rootToView=camera.WorldToView*Matrix4x4.TRS(Vector3.zero,placement.Rotation,Vector3.one*placement.Scale);
+            Bounds rotated=RotatedBounds(source,placement.Rotation,placement.Scale);
+            Vector3 viewPivot=camera.WorldToView.MultiplyVector(new Vector3(rotated.center.x,rotated.min.y,rotated.center.z));
+            Vector3 anchor=camera.WorldToView.MultiplyPoint3x4(new Vector3(placement.Position.x,placement.GroundY,placement.Position.z));
+            List<double> offsets=new List<double>();
+            AddBoundsOffsets(source,Matrix4x4.identity,rootToView,viewPivot,offsets);
+            if(FitScale(camera,anchor,offsets)>=1f)return 1f;
+            offsets.Clear();Matrix4x4 worldToRoot=model.Root.transform.worldToLocalMatrix;
+            foreach(RhodesMesh mesh in model.Package.Meshes)
+            {
+                Transform node=model.Nodes[mesh.Node];
+                if((mesh.Lod!=1&&mesh.Lod!=-1)||!VisibleWithinModel(node,model.Root.transform))continue;
+                Bounds local=new Bounds();bool first=true;
+                for(int at=0;at<mesh.Vertices.Length;at+=10)
+                {
+                    Vector3 point=new Vector3(mesh.Vertices[at],mesh.Vertices[at+1],mesh.Vertices[at+2]);
+                    if(first){local=new Bounds(point,Vector3.zero);first=false;}else local.Encapsulate(point);
+                }
+                AddBoundsOffsets(local,worldToRoot*node.localToWorldMatrix,rootToView,viewPivot,offsets);
+            }
+            foreach(Renderer renderer in model.Renderers)
+            {
+                if(renderer==null||!VisibleWithinModel(renderer.transform,model.Root.transform)||
+                    renderer.GetComponent<RhodesRigidBatchTag>()!=null||renderer.GetComponent<RhodesCarrierBatchTag>()!=null)continue;
+                MeshFilter filter=renderer.GetComponent<MeshFilter>();SkinnedMeshRenderer skin=renderer as SkinnedMeshRenderer;
+                if(filter!=null&&filter.sharedMesh!=null&&filter.sharedMesh.name.StartsWith("EF_RHS2_",StringComparison.Ordinal))continue;
+                Bounds local;
+                if(filter!=null&&filter.sharedMesh!=null)local=filter.sharedMesh.bounds;
+                else if(skin!=null&&skin.sharedMesh!=null)local=skin.localBounds;
+                else continue;
+                Matrix4x4 toRoot=worldToRoot*renderer.transform.localToWorldMatrix;
+                AddBoundsOffsets(local,toRoot,rootToView,viewPivot,offsets);
+            }
+            return Math.Min(1f,FitScale(camera,anchor,offsets));
+        }
+
+        static bool VisibleWithinModel(Transform node,Transform root)
+        {
+            for(Transform current=node;current!=root;current=current.parent)
+            {if(current==null)throw new InvalidDataException("Preview geometry belongs to another model");if(!current.gameObject.activeSelf)return false;}
+            return true;
+        }
+
+        static void AddBoundsOffsets(Bounds bounds,Matrix4x4 toRoot,Matrix4x4 rootToView,Vector3 viewPivot,List<double> result)
+        {
+            for(int corner=0;corner<8;corner++)
+            {
+                Vector3 point=toRoot.MultiplyPoint3x4(new Vector3((corner&1)==0?bounds.min.x:bounds.max.x,
+                    (corner&2)==0?bounds.min.y:bounds.max.y,(corner&4)==0?bounds.min.z:bounds.max.z));
+                point=rootToView.MultiplyVector(point)-viewPivot;
+                result.Add(point.x);result.Add(point.y);result.Add(point.z);
+            }
+        }
+
+        static float FitScale(RhodesFleetCamera camera,Vector3 anchor,List<double> offsets)
+        {
+            double fit=RhodesPreviewFraming.FitFixedScale(anchor.x,anchor.y,anchor.z,offsets.ToArray(),camera.VerticalTan,camera.Aspect,
+                camera.OrthoSize,camera.Orthographic,camera.Near,camera.Far,.02,.98,.02,.98);
+            if(fit<=0||double.IsNaN(fit)||double.IsInfinity(fit))throw new InvalidDataException("Native preview slot cannot fit its visible geometry");
+            return (float)fit;
+        }
     }
 }

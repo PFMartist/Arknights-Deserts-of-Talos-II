@@ -39,4 +39,4 @@ if($LASTEXITCODE -ne 0){throw 'HUD61 helper fixture FAILED'}
 $files=@('src\EndfieldHudTheme.cs','src\RhodesHangarStateColours.cs','src\HudSerializedSkinSnapshot61.cs','tests\hud61\HudSkinFixture61.cs') | ForEach-Object {Join-Path $root $_}
 $dll=Join-Path $root 'out\EndfieldDoK.MapUnitLab.dll'
 if(Test-Path -LiteralPath $dll){$files+=$dll}
-$files | Where-Object {Test-Path -LiteralPath $_} | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $audit 'VERIFIED_HUD_FILES_SHA256.json') -Encoding UTF8
+$files | Where-Object {Test-Path -LiteralPath $_} | ForEach-Object {Get-FileHash -LiteralPath $_ -Algorithm SHA256} | Select-Object Path,Hash | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $audit 'VERIFIED_HUD_FILES_SHA256.json') -Encoding UTF8
