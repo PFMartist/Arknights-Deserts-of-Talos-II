@@ -319,6 +319,9 @@ namespace EndfieldDoK.MapUnitLab
         void AlignToNativeHangar()
         {
             if(Root==null||NativeFrame==null||NativeFontReference==null||NativeHangar==null)return;
+            // The initial build needs dimensions before Ready. A pending
+            // selection/resize layout can expire while a built page is hidden.
+            if(Ready&&!Root.activeInHierarchy)return;
             NativeRegion=WidgetBounds(NativeHangar,new UIWidget[]{NativeFrame});
             Root.transform.parent=NativeHangar;Root.transform.localRotation=Quaternion.identity;Root.transform.localScale=Vector3.one;
             Root.transform.localPosition=new Vector3(NativeRegion.min.x+Padding,NativeRegion.max.y-Padding,NativeRegion.center.z);
@@ -385,7 +388,9 @@ namespace EndfieldDoK.MapUnitLab
         }
         void ScheduleAlignment()
         {
-            if(!Ready||AlignmentPending||!gameObject.activeInHierarchy)return;
+            // Other unit selections keep this host enabled. A hidden cargo
+            // page needs no delayed layout; Render schedules it on next show.
+            if(!Ready||Root==null||!Root.activeInHierarchy||AlignmentPending||!gameObject.activeInHierarchy)return;
             AlignmentPending=true;StartCoroutine(AfterNativeLayout());
         }
         IEnumerator AfterNativeLayout()

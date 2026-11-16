@@ -219,7 +219,10 @@ namespace EndfieldDoK.MapUnitLab
                 throw new InvalidOperationException("Faction LOD settings still alias native donor");
             if(tuning!=null)foreach(string field in new string[]{"SuspensionActiveLODs","WheelActuationActiveLODs","BodyMotionActiveLODs"})
             {object old=NativeRead.Get(tuning,field);NativeRead.Set(tuning,field,Enum.ToObject(old.GetType(),0));}
-            if(tuning!=null)NativeRead.Set(tuning,"ForceIconOnlyInSensors",false);
+            // Ground vehicles retain the donor's icon-only sensor policy.
+            // Keeping their full authored hierarchy alive here multiplies
+            // native visibility/property-block work by hundreds of renderers.
+            if(binding.Air&&tuning!=null)NativeRead.Set(tuning,"ForceIconOnlyInSensors",false);
             if(binding.Air&&tuning!=null)
             {
                 LODSettingsAsset lod=NativeRead.Get(tuning,"LODSettings") as LODSettingsAsset;
@@ -499,8 +502,10 @@ namespace EndfieldDoK.MapUnitLab
         void LateUpdate()
         {
             if(PresentationFailed||!enabled)return;
+            long timing=RhodesSkirmishFrameTiming.Begin();
             try{ApplyPresentationFrame();}
             catch(Exception error){DisablePresentation(View,"faction_rig",error);}
+            finally{RhodesSkirmishFrameTiming.End(6,timing);}
         }
         // U08 prepares its body target before every native camera LateUpdate.
         // LateUpdate remains the fallback; the frame gate below advances the
@@ -508,8 +513,10 @@ namespace EndfieldDoK.MapUnitLab
         internal void PrepareAirPresentationFrame()
         {
             if(PresentationFailed||!enabled||Binding==null||!Binding.Air)return;
+            long timing=RhodesSkirmishFrameTiming.Begin();
             try{ApplyPresentationFrame();}
             catch(Exception error){DisablePresentation(View,"faction_rig",error);}
+            finally{RhodesSkirmishFrameTiming.End(6,timing);}
         }
         void ApplyPresentationFrame()
         {
@@ -576,7 +583,11 @@ namespace EndfieldDoK.MapUnitLab
             if(Tracks!=null)
             {
                 if(Binding.Air)Tracks.Apply(visibleLod);
-                else if(wheelMotion)Tracks.ApplyNative();
+                // Refine work inside the inherited native permission: near
+                // has both, an allowed medium has the belt only, far freezes.
+                // Do not re-enable medium actuation on donors that already
+                // stop it there; that would increase many-unit CPU work.
+                else if(wheelMotion)Tracks.ApplyNative(wheelMotion);
             }
             float hullYaw=Mathf.Atan2(state.Forward.x,state.Forward.z)*Mathf.Rad2Deg;
             float yaw=state.HasTurretYaw?Mathf.DeltaAngle(hullYaw,state.TurretYawDegrees):0f;

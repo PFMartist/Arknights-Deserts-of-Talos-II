@@ -18,10 +18,12 @@ namespace EndfieldDoK.MapUnitLab
         public const string ProductionName="EF_LAEVAT_Portrait_Production",InfoName="EF_LAEVAT_Portrait_Info",FleetName="EF_LAEVAT_Portrait_Fleet",CargoName="EF_LAEVAT_Portrait_Cargo";
         static readonly string[] Fields={"mUnitProductionIconName","m_UnitInfoPanelIconName","mUnitFleetPanelIconName"};
         static string[] SpriteNames(OperatorUiIdentity identity)
-        {return new string[]{identity.ProductionName,identity.InfoName,identity.FleetName};}
+        {return identity.PortraitSpriteNames;}
         sealed class PortraitEntry {internal OperatorUiIdentity Identity;internal string[] References;internal Texture2D Texture;internal Color32[] Pixels;}
         static readonly Dictionary<string,PortraitEntry> Entries=new Dictionary<string,PortraitEntry>(StringComparer.Ordinal);
-        static readonly Dictionary<UIAtlas,UIAtlas> Mapped=new Dictionary<UIAtlas,UIAtlas>(),Cargo=new Dictionary<UIAtlas,UIAtlas>();
+        static readonly AtlasPositiveCache61 Mapped=new AtlasPositiveCache61();
+        static readonly Dictionary<UIAtlas,UIAtlas> Cargo=new Dictionary<UIAtlas,UIAtlas>();
+        static int RegistrationGeneration;
         static readonly Dictionary<UnitHUDAttributes,string> EnglishNames=new Dictionary<UnitHUDAttributes,string>();
         static readonly List<UnityEngine.Object> Owned=new List<UnityEngine.Object>();
         static readonly Dictionary<UISprite,bool> HiddenInfoBackgrounds=new Dictionary<UISprite,bool>();
@@ -35,7 +37,10 @@ namespace EndfieldDoK.MapUnitLab
             UnitHUDAttributes custom=customHudData as UnitHUDAttributes,original=originalHudData as UnitHUDAttributes;
             if(custom==null||original==null||object.ReferenceEquals(custom,original))throw new InvalidOperationException("Operator portrait requires private HUD data");
             PortraitEntry entry=EnsurePortrait(OperatorUiIdentity.Require(typeKey));
-            entry.References=ConfigureHudIcons(custom,original,entry.Identity);
+            string[] references=ConfigureHudIcons(custom,original,entry.Identity);
+            bool changed=entry.References==null;
+            if(!changed)for(int i=0;i<references.Length;i++)if(references[i]!=entry.References[i]){changed=true;break;}
+            entry.References=references;if(changed)RegistrationGeneration++;
             Runtime.Log("OPERATOR_PORTRAIT_CONFIGURED exactUnit="+typeKey+"; productionInformationAndFleet=True; nativeRGBAHeadCutout=True; originalSourceRGB=True; noDeadSymbolOrHatch=True; privateHUDOnly=True; nativeAtlasUnchanged=True");
         }
         // Pure managed HUD binding. Texture creation and atlas baking remain
@@ -84,15 +89,16 @@ namespace EndfieldDoK.MapUnitLab
         }
         public static UIAtlas MapAtlas(UIAtlas source)
         {
-            if(source==null||!Needs(source))return source;UIAtlas result;
-            if(Mapped.TryGetValue(source,out result)&&result!=null&&!Needs(result))return result;
+            if(source==null)return source;UIAtlas result;
+            if(Mapped.TryGetValue(source,RegistrationGeneration,out result)&&result!=null)return result;
+            if(!Needs(source))return source;
             try
             {
                 if(!Mapped.ContainsKey(source)&&Mapped.Count>=8)throw new InvalidOperationException("Operator portrait atlas cache budget exceeded");
                 List<string> references=new List<string>(),names=new List<string>();List<Color32[]> pixels=new List<Color32[]>();
                 foreach(PortraitEntry entry in Entries.Values)if(entry.References!=null)
                 {string[] target=SpriteNames(entry.Identity);for(int i=0;i<Fields.Length;i++)if(source.GetSprite(target[i])==null&&source.GetSprite(entry.References[i])!=null){references.Add(entry.References[i]);names.Add(target[i]);pixels.Add(entry.Pixels);}}
-                result=AppendPatterns(source,references.ToArray(),names.ToArray(),pixels.ToArray());Mapped[source]=result;return result;
+                result=AppendPatterns(source,references.ToArray(),names.ToArray(),pixels.ToArray());Mapped.Store(source,result,RegistrationGeneration);return result;
             }
             catch(Exception error){if(!Warned){Warned=true;Runtime.Log("WARNING OPERATOR_PORTRAIT_ATLAS "+error.GetType().Name+": "+error.Message);}return source;}
         }

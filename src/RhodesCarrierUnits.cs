@@ -35,8 +35,8 @@ namespace EndfieldDoK.MapUnitLab
 
         sealed class Configuration
         {
-            public float Length=600f,Speed=60f,Sensor=2400f,Contact=2800f;
-            public int Health=15000,Armour=40;
+            public float Length=600f,Speed=60f,Sensor=800f,Contact=1250f;
+            public int Health=15000,Armour=25;
             public float Width { get { return Length * (13.499716f/29.762559f); } }
             public float Height { get { return Length * (9.203893f/29.762559f); } }
         }
@@ -127,9 +127,12 @@ namespace EndfieldDoK.MapUnitLab
             EntityTypeAttributes definition=new EntityTypeAttributes(UnitKey);
             foreach(object value in (IEnumerable)c.Custom)if(value!=null&&!definition.Add(value))throw new InvalidOperationException("Duplicate Rhodes datum "+value.GetType().FullName);
             current.Add(definition);VerifyRegistered();Ready=true;
+            object registeredDynamics=Read(Read(c.Movement,"m_Simulation"),"m_Dynamics"),registeredNav=Read(c.Nav,"m_NavMeshConfig");
             Runtime.Log("RHODES_UNIT_REGISTERED key="+UnitKey+"; donor="+SourceKey+"; sourceUnchanged=True; coreMovementHudViewNavAndCommonCommandsPrivate=True"+
                 "; lengthMetres="+Settings.Length+"; widthMetres="+Settings.Width+"; heightMetres="+Settings.Height+"; dimensionsAreStressTestNotCanon=True"+
-                "; nativeCapsuleWidth="+Settings.Width+"; nativeCapsuleLength="+Settings.Length+"; conservativeNavClearance="+(Settings.Length*.5f+5f)+
+                "; nativeCapsuleWidth="+Read(registeredDynamics,"m_Width")+"; nativeCapsuleLength="+Read(registeredDynamics,"m_Length")+
+                "; nativeNavClearance="+Read(registeredNav,"m_DistanceFromObstacles")+"; navigationGeometryReference="+SourceKey+
+                "; visualAndNavigationDimensionsIndependent=True; visualFormationSpacingRetained=True"+
                 "; maxSpeedNativeValue="+Settings.Speed+"; speedReference=C_Carrier_MP; commonMove=True; commonStop="+stop+"; weaponBindings=8; formalFactoryProducts=8; nativeProductionQueue=True; nativeResearch=True; mainResearchGated=True; activeFlatMapAcceptancePending=True");
         }
 
@@ -217,12 +220,14 @@ namespace EndfieldDoK.MapUnitLab
             Write(core,"m_WorldHeightOffset",0f);Write(core,"m_Selectable",true);Write(core,"m_Controllable",true);Write(core,"m_StartsInHangar",false);
             Write(core,"m_SensorRadius",Settings.Sensor);Write(core,"m_ContactRadius",Settings.Contact);
             Write(core,"m_AggroRange",0);Write(core,"m_AlertRange",0);Write(core,"m_LeashRange",0);
-            Write(Read(c.Nav,"m_NavMeshConfig"),"m_DistanceFromObstacles",Settings.Length*.5f+5f);
             object movement=Read(c.Movement,"m_Simulation"),dynamics=Read(movement,"m_Dynamics");
             ConfigureCarrierCombat(movement);
             object maneuvers=Read(movement,"m_Maneuvers"),avoidance=Read(movement,"m_Avoidance");
             object donorMovement=Read(Read(c.Source,"m_Movement"),"m_Simulation"),donorDynamics=Read(donorMovement,"m_Dynamics");
             object donorManeuvers=Read(donorMovement,"m_Maneuvers");
+            object donorCore=Read(c.Source,"m_Attributes"),donorNav=Read(Read(donorCore,"m_NavMesh"),"m_NavMeshConfig");
+            ConfigureNativeCarrierNavigation(Read(c.Nav,"m_NavMeshConfig"),dynamics,maneuvers,avoidance,
+                donorNav,donorDynamics,donorManeuvers,Read(donorMovement,"m_Avoidance"));
             NativeFormationSpacing spacing=FormationSpacingPolicy.Evaluate(Settings.Width,Settings.Length,
                 (float)Read(donorDynamics,"m_Width"),(float)Read(donorDynamics,"m_Length"),
                 (float)Read(donorManeuvers,"m_FormationSpacingDistance"),(float)Read(donorManeuvers,"m_FormationSectionGapAhead"));
@@ -232,20 +237,22 @@ namespace EndfieldDoK.MapUnitLab
                 throw new InvalidOperationException("Native Coalition carrier speed ratio contract changed");
             float cruiseRatio=donorCruise/donorMax;
             Write(movement,"m_DriveType",UnitDriveType.Tracked);
-            Write(dynamics,"m_Width",Settings.Width);Write(dynamics,"m_Length",Settings.Length);Write(dynamics,"m_MaxSpeed",Settings.Speed);
+            Write(dynamics,"m_MaxSpeed",Settings.Speed);
             Write(dynamics,"m_MinCruiseSpeed",Settings.Speed*cruiseRatio);Write(dynamics,"m_ReverseFactor",.35f);
             Write(dynamics,"m_AccelerationTime",10f);Write(dynamics,"m_BrakingTime",6f);
-            Write(dynamics,"m_MaxSpeedTurnRadius",Settings.Length*.45f);Write(dynamics,"m_MaxEaseIntoTurnTime",2f);Write(dynamics,"m_PermanentlyImmobile",false);
+            Write(dynamics,"m_MaxEaseIntoTurnTime",2f);Write(dynamics,"m_PermanentlyImmobile",false);
             foreach(string field in new string[]{"m_AccelerationTimeRandomVariancePercentage","m_MaxSpeedTurnRadiusRandomVariancePercentage","m_DriftType","m_DriftTypeRandomVariancePercentage","m_DriftOvershootFactor","m_DriftOvershootFactorRandomVariancePercentage","m_FishTailControlRecover","m_MinDriftSlipSpeedRandomVariancePercentage","m_DeathDriftTime"})Write(dynamics,field,0f);
             Write(dynamics,"m_ReverseDriftMultiplier",0f);Write(dynamics,"m_FishTailingTimeIntervals",1f);Write(dynamics,"m_MinDriftSlipSpeed",1000f);Write(dynamics,"m_MaxDriftRecoverTime",.1f);
             foreach(string field in new string[]{"m_CruiseSpeedVariations","m_CruiseDirectionVariations"})ClearArray(dynamics,field);
-            Write(maneuvers,"m_ObstacleAvoidanceDistance",Settings.Length*.5f+5f);Write(maneuvers,"m_FormationSpacingDistance",spacing.MemberGap);
-            Write(maneuvers,"m_FormationSectionGapAhead",spacing.SectionGapAhead);Write(maneuvers,"m_ArrivalDistance",Math.Max(5f,Settings.Length*.025f));
-            Write(avoidance,"m_AvoidanceDistance",Settings.Length*.5f+5f);
+            Write(maneuvers,"m_FormationSpacingDistance",spacing.MemberGap);
+            Write(maneuvers,"m_FormationSectionGapAhead",spacing.SectionGapAhead);
             foreach(string field in new string[]{"m_FastDirectTurn","m_FastAwayTurn","m_SlowDirectTurn","m_SlowAwayTurn"})Write(maneuvers,field,TurnStyle.Controlled);
             Write(maneuvers,"m_MustReachMinSpeedBeforeTurn",false);Write(Read(maneuvers,"m_ThreePointTurn"),"m_MustReachMinSpeedBeforeTurn",false);
             Write(Read(maneuvers,"m_JTurn"),"m_TurnStyle",TurnStyle.None);Write(maneuvers,"m_DriftRecoverOptions",new DriftRecoverStyle[]{DriftRecoverStyle.Neutral});
-            Runtime.Log("RHODES_MOVEMENT_PREPARED maxSpeedNativeValue="+Settings.Speed+"; minCruiseNativeValue="+(Settings.Speed*cruiseRatio)+"; donorMaxNativeValue="+donorMax+"; donorCruiseNativeValue="+donorCruise+"; speedReference=C_Carrier_MP; customLargeHullTurnRadiusRetained=True; physicalUnitConversionNotClaimed=True");
+            Runtime.Log("RHODES_MOVEMENT_PREPARED maxSpeedNativeValue="+Settings.Speed+"; minCruiseNativeValue="+(Settings.Speed*cruiseRatio)+"; donorMaxNativeValue="+donorMax+"; donorCruiseNativeValue="+donorCruise+
+                "; speedReference=C_Carrier_MP; navigationGeometryReference=C_Carrier_MP; nativeCapsuleWidth="+Read(dynamics,"m_Width")+
+                "; nativeCapsuleLength="+Read(dynamics,"m_Length")+"; nativeTurnRadius="+Read(dynamics,"m_MaxSpeedTurnRadius")+
+                "; visualLength="+Settings.Length+"; visualFormationSpacingRetained=True; physicalUnitConversionNotClaimed=True");
             UnitViewAttributes view=(UnitViewAttributes)Read(c.View,"Data"),native=(UnitViewAttributes)Read(Read(c.Source,"m_View"),"Data");
             c.NativePrefab=native.ModelPrefab;
             foreach(string field in new string[]{"SuspensionActiveLODs","WheelActuationActiveLODs","TurretActuationActiveLODs","BodyMotionActiveLODs"})
@@ -339,8 +346,10 @@ namespace EndfieldDoK.MapUnitLab
             if(object.ReferenceEquals(core.NavMeshAttributes,((UnitAttributes)Read(Read(c.Source,"m_Attributes"),"m_Attributes")).NavMeshAttributes)||object.ReferenceEquals(view.LODTunings,sourceView.LODTunings)||object.ReferenceEquals(view.FocusSettings,sourceView.FocusSettings))
                 throw new InvalidOperationException("Rhodes navigation/LOD/focus data aliases native carrier");
             object dynamics=Read(Read(c.Movement,"m_Simulation"),"m_Dynamics");
-            if(Math.Abs((float)Read(dynamics,"m_Width")-Settings.Width)>.01f||Math.Abs((float)Read(dynamics,"m_Length")-Settings.Length)>.01f)
-                throw new InvalidOperationException("Rhodes authoritative capsule differs from visual scale");
+            object movement=Read(c.Movement,"m_Simulation"),donorMovement=Read(Read(c.Source,"m_Movement"),"m_Simulation");
+            object donorNav=Read(Read(Read(c.Source,"m_Attributes"),"m_NavMesh"),"m_NavMeshConfig");
+            VerifyNativeCarrierNavigation(Read(c.Nav,"m_NavMeshConfig"),dynamics,Read(movement,"m_Maneuvers"),Read(movement,"m_Avoidance"),
+                donorNav,Read(donorMovement,"m_Dynamics"),Read(donorMovement,"m_Maneuvers"),Read(donorMovement,"m_Avoidance"));
             Array abilities=Read(c.Custom,"m_Abilities") as Array;
             if(abilities==null||abilities.Length!=c.Commands.Count+c.Products.Count)throw new InvalidOperationException("Rhodes command/production array changed");
             foreach(ScriptableObject command in abilities)

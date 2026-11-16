@@ -6,13 +6,20 @@ namespace EndfieldDoK.MapUnitLab
     internal sealed class OperatorUiIdentity
     {
         internal readonly string TypeKey,DisplayName,EnglishName,Prefix,PortraitFile,SkillFile,AbilityKey;
-        internal string ProductionName {get{return Prefix+"_Portrait_Production";}}
-        internal string InfoName {get{return Prefix+"_Portrait_Info";}}
-        internal string FleetName {get{return Prefix+"_Portrait_Fleet";}}
-        internal string CargoName {get{return Prefix+"_Portrait_Cargo";}}
-        internal string SkillName {get{return Prefix=="EF_LAEVAT"?"EF_LAEVAT_ComboPattern":Prefix=="EF_ARDELIA"?"EF_ARDELIA_HealingPattern":Prefix+"_GravityPattern";}}
+        readonly string Production,Information,Fleet,Cargo,Skill;
+        internal readonly string[] PortraitSpriteNames;
+        internal string ProductionName {get{return Production;}}
+        internal string InfoName {get{return Information;}}
+        internal string FleetName {get{return Fleet;}}
+        internal string CargoName {get{return Cargo;}}
+        internal string SkillName {get{return Skill;}}
         OperatorUiIdentity(string key,string display,string english,string prefix,string portrait,string skill,string ability)
-        {TypeKey=key;DisplayName=display;EnglishName=english;Prefix=prefix;PortraitFile=portrait;SkillFile=skill;AbilityKey=ability;}
+        {
+            TypeKey=key;DisplayName=display;EnglishName=english;Prefix=prefix;PortraitFile=portrait;SkillFile=skill;AbilityKey=ability;
+            Production=prefix+"_Portrait_Production";Information=prefix+"_Portrait_Info";Fleet=prefix+"_Portrait_Fleet";Cargo=prefix+"_Portrait_Cargo";
+            Skill=prefix=="EF_LAEVAT"?"EF_LAEVAT_ComboPattern":prefix=="EF_ARDELIA"?"EF_ARDELIA_HealingPattern":prefix+"_GravityPattern";
+            PortraitSpriteNames=new string[]{Production,Information,Fleet};
+        }
         internal const int Capacity=4;
         internal static readonly OperatorUiIdentity[] All={
             new OperatorUiIdentity("EF_Laevatain_Test","莱万汀","Laevatain","EF_LAEVAT","laevatain_portrait.png","laevatain_combo_pattern.png","EF_Laevatain_ChainFlame"),

@@ -63,6 +63,9 @@ namespace EndfieldDoK.MapUnitLab
             string unitType=UnitTypeForToken(value.SecondaryDetail);
             if(unitType==FactionUnits.TiltStrikeKey)return "RI_BAD_GUY_PRODUCTION_READY";
             if(unitType==FactionUnits.ArtilleryKey)return "RI_ARTILLERY_PRODUCTION_READY";
+            // The engineering vehicle borrows Baserunner audio for ordinary
+            // responses; its production report must identify the repair role.
+            if(unitType==FactionUnits.EngineeringKey)return "RI_ENGINEERING_PRODUCTION_READY";
             if(unitType==HumanoidUnits.LaevatainKey)return "RI_OPERATOR_LAEVAT_READY";
             if(unitType==HumanoidUnits.GilbertaKey)return "RI_OPERATOR_GILBERTA_READY";
             if(unitType==HumanoidUnits.ArdeliaKey)return "RI_OPERATOR_ARDELIA_READY";

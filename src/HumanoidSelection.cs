@@ -83,6 +83,12 @@ namespace EndfieldDoK.MapUnitLab
             }
             void LateUpdate()
             {
+                long timing=RhodesSkirmishFrameTiming.Begin();
+                try{RefreshSelectionPresentation();}
+                finally{RhodesSkirmishFrameTiming.End(10,timing);}
+            }
+            void RefreshSelectionPresentation()
+            {
                 if (View == null || Binding == null || Binding.PresentationRoot == null || View.SimStateInterpolator == null)
                 { RestoreNative(); RestoreCollider(); if (RingRenderer != null) RingRenderer.enabled = false; return; }
                 ResizeSelectionCollider();
@@ -102,19 +108,32 @@ namespace EndfieldDoK.MapUnitLab
                         for (int i = 0; i < NativeRenderers.Length; i++) NativeEnabled[i] = NativeRenderers[i] != null && NativeRenderers[i].enabled;
                     }
                 }
-                if (OwnRing == null) CreateOwn();
-                for (int i = 0; i < NativeRenderers.Length; i++) if (NativeRenderers[i] != null) NativeRenderers[i].enabled = false;
-                Transform root = Binding.PresentationRoot;
-                Vector3 position = root.position; position.y += GroundLift; OwnRing.transform.position = position;
-                OwnRing.transform.rotation = Quaternion.AngleAxis(root.eulerAngles.y, Vector3.up);
-                Vector3 parentScale = OwnRing.transform.parent.lossyScale;
-                OwnRing.transform.localScale = new Vector3(1f / Nonzero(parentScale.x), 1f / Nonzero(parentScale.y), 1f / Nonzero(parentScale.z));
-                object fade = NativeRead.Get(View, "mFOWFade");
-                float visibility = fade == null ? 0f : Mathf.Clamp01(Convert.ToSingle(NativeRead.Get(fade, "Value")));
+                for (int i = 0; i < NativeRenderers.Length; i++)
+                    if (NativeRenderers[i] != null && NativeRenderers[i].enabled) NativeRenderers[i].enabled = false;
                 bool nativeActive = NativeRing == null || View.UnderlayActive;
-                bool shown = View.Selected && nativeActive && View.gameObject.activeInHierarchy && visibility > .001f && !UserCamera.IsSensorsModeActive;
-                FitProjectedBand();
-                Color color = SelectionColor(); color.a = (SpriteShader ? .78f : 1f) * visibility; RingMaterial.color = color; RingRenderer.enabled = shown;
+                bool eligible = View.Selected && nativeActive && View.gameObject.activeInHierarchy && !UserCamera.IsSensorsModeActive;
+                object fade = eligible ? NativeRead.Get(View, "mFOWFade") : null;
+                float visibility = fade == null ? 0f : Mathf.Clamp01(Convert.ToSingle(NativeRead.Get(fade, "Value")));
+                bool shown = eligible && visibility > .001f;
+                // A hidden selection ring does not need a mesh, camera-sized
+                // geometry or material/transform writes. Keep fitting the
+                // dedicated click collider above even while it is hidden.
+                if(shown)
+                {
+                    if (OwnRing == null) CreateOwn();
+                    Transform root = Binding.PresentationRoot, ring = OwnRing.transform;
+                    Vector3 position = root.position; position.y += GroundLift;
+                    if(ring.position!=position)ring.position=position;
+                    Quaternion rotation=Quaternion.AngleAxis(root.eulerAngles.y, Vector3.up);
+                    if(ring.rotation!=rotation)ring.rotation=rotation;
+                    Vector3 parentScale = ring.parent.lossyScale;
+                    Vector3 scale = new Vector3(1f / Nonzero(parentScale.x), 1f / Nonzero(parentScale.y), 1f / Nonzero(parentScale.z));
+                    if(ring.localScale!=scale)ring.localScale=scale;
+                    FitProjectedBand();
+                    Color color = SelectionColor(); color.a = (SpriteShader ? .78f : 1f) * visibility;
+                    if(RingMaterial.color!=color)RingMaterial.color=color;
+                }
+                if(RingRenderer!=null&&RingRenderer.enabled!=shown)RingRenderer.enabled=shown;
                 if (!HaveVisibleState || shown != LastVisible || Reports < 2)
                 {
                     Runtime.Log("HUMANOID_SELECTION_STATE entity=" + View.EntityID + "; members=" + Binding.MemberCount +
@@ -148,6 +167,7 @@ namespace EndfieldDoK.MapUnitLab
                 // dedicated box's LOCAL frame; its native transform is retained.
                 bool squad = Binding.MemberCount > 1, haveBounds = false;
                 Vector3 personSize = squad ? new Vector3(1.1f, 1.85f, 1.1f) : new Vector3(1f, 1.75f, 1f);
+                Quaternion yaw = Quaternion.AngleAxis(Binding.PresentationRoot.eulerAngles.y, Vector3.up);
                 Bounds local = new Bounds();
                 for (int memberIndex=0;memberIndex<Binding.MemberRoots.Length;memberIndex++)
                 {
@@ -158,7 +178,6 @@ namespace EndfieldDoK.MapUnitLab
                     // world metres by HumanoidDriver. Do not scale the collider
                     // itself or modify native NLIPS, body or child transforms.
                     Vector3 foot = member.position;
-                    Quaternion yaw = Quaternion.AngleAxis(Binding.PresentationRoot.eulerAngles.y, Vector3.up);
                     for (int i = 0; i < 8; i++)
                     {
                         Vector3 offset = new Vector3((i & 1) == 0 ? -personSize.x * .5f : personSize.x * .5f,
@@ -170,7 +189,8 @@ namespace EndfieldDoK.MapUnitLab
                 if (!haveBounds) return;
                 if (!Finite(local.center) || !Finite(local.size) || local.size.x <= 0f || local.size.y <= 0f || local.size.z <= 0f)
                     throw new InvalidOperationException("Invalid humanoid selection box transform");
-                current.center = local.center; current.size = local.size;
+                if((current.center-local.center).sqrMagnitude>.00000001f)current.center=local.center;
+                if((current.size-local.size).sqrMagnitude>.00000001f)current.size=local.size;
                 if (!ColliderReported)
                 {
                     Runtime.Log("HUMANOID_SELECTION_COLLIDER_FITTED entity=" + View.EntityID + "; source=UnitView.SelectionCollider/mSelectionCollider" +

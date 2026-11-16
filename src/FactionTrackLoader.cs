@@ -136,6 +136,7 @@ namespace EndfieldDoK.MapUnitLab
         internal bool[][] UsedBones;
         internal bool[] NativeUsedBones;
         internal int NativeVisibleMask=-1;
+        internal int NativeWheelMask=-1;
         internal bool Dirty=true;
         internal int LastLod=-1;
     }
@@ -175,36 +176,44 @@ namespace EndfieldDoK.MapUnitLab
             }
         }
         public void ApplyNative()
+        {ApplyNative(true);}
+        public void ApplyNative(bool nativeWheelsAllowed)
         {
-            // Called only when the inherited native wheel/tread actuation mask
-            // permits it. Unity owns mesh selection; renderer.isVisible is only
-            // a work-culling hint (including other cameras/shadows), never a
-            // replacement LOD selector. A stable stationary belt has no writes.
+            long timing=RhodesSkirmishFrameTiming.Begin();
+            try
+            {
+            // The caller preserves native track actuation permission. Unity
+            // still selects meshes: L0 animates tracks and native-allowed wheels,
+            // L1 tracks only, L2 freezes. Advance keeps all phases current while
+            // writes are culled, so returning detail catches up without a reset.
             foreach(FactionTrackLiveBelt g in Groups)
             {
                 int visibleMask=0;
                 for(int lod=0;lod<g.Skins.Length;lod++)
                     if(g.Skins[lod]!=null&&g.Skins[lod].enabled&&g.Skins[lod].isVisible)visibleMask|=1<<lod;
-                bool write=NativeUnitLodAdapter.NeedsActuationWrites(g.Dirty,g.NativeVisibleMask,visibleMask);
-                if(visibleMask!=g.NativeVisibleMask)
+                int animationMask=TrackAnimationPolicy60.BoneLods(visibleMask);
+                int wheelMask=TrackAnimationPolicy60.WheelLods(visibleMask,nativeWheelsAllowed);
+                bool writeBones=TrackAnimationPolicy60.NeedsWrites(g.Dirty,g.NativeVisibleMask,animationMask);
+                bool writeWheels=TrackAnimationPolicy60.NeedsWrites(g.Dirty,g.NativeWheelMask,wheelMask);
+                if(animationMask!=g.NativeVisibleMask)
                 {
-                    Array.Clear(g.NativeUsedBones,0,g.NativeUsedBones.Length);
-                    for(int lod=0;lod<g.UsedBones.Length;lod++)if((visibleMask&(1<<lod))!=0)
-                        for(int bone=0;bone<g.NativeUsedBones.Length;bone++)
-                            if(g.UsedBones[lod][bone])g.NativeUsedBones[bone]=true;
-                    g.NativeVisibleMask=visibleMask;
+                    TrackAnimationPolicy60.FillUsedBones(g.UsedBones,animationMask,g.NativeUsedBones);
+                    g.NativeVisibleMask=animationMask;
                 }
-                if(!write)continue;
-                for(int k=0;k<g.Bones.Length;k++)
+                g.NativeWheelMask=wheelMask;
+                if(!writeBones&&!writeWheels)continue;
+                if(writeBones)for(int k=0;k<g.Bones.Length;k++)
                 {
                     if(!g.NativeUsedBones[k])continue;
                     double f,u,a;FactionTrackMath.Sample(g.Data,g.Data.Phases[k]+g.Phase,out f,out u,out a);
                     g.Bones[k].localPosition=new Vector3(0f,(float)u,(float)f);g.Bones[k].localRotation=Quaternion.AngleAxis((float)(a*180.0/Math.PI),Vector3.right);
                 }
-                for(int k=0;k<g.Wheels.Length;k++)if((visibleMask&(1<<g.Data.Wheels[k].Lod))!=0)
+                if(writeWheels)for(int k=0;k<g.Wheels.Length;k++)if((wheelMask&(1<<g.Data.Wheels[k].Lod))!=0)
                     g.Wheels[k].localRotation=Quaternion.AngleAxis((float)(g.WheelAngles[k]*180.0/Math.PI),Vector3.right)*g.WheelRest[k];
                 g.Dirty=false;
             }
+            }
+            finally{RhodesSkirmishFrameTiming.End(7,timing);}
         }
     }
 }

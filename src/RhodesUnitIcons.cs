@@ -33,7 +33,7 @@ namespace EndfieldDoK.MapUnitLab
         static readonly string[] Keys={"RI_U01_HARVESTER","RI_U02_FIELD_SURVEY","RI_U03_ENGINEERING","RI_U04_LIGHT_ESCORT","RI_U05_SUPPRESSION","RI_U06_RAILGUN","RI_U07_AIR_DEFENCE","RI_U08_TILT_STRIKE","RI_U09_ARTILLERY","EF_Rhodes_Interceptor_MP","EF_Rhodes_HeavyBomber_MP"};
         static readonly string[] Donors={"C_Harvester_MP","C_Baserunner_MP","C_Baserunner_MP","C_Escort_MP","C_HAC_MP","C_Railgun_MP","C_HAC_Upgrade01_MP","C_Interceptor_MP","C_ArtilleryCruiser_MP","C_Interceptor_MP","C_Bomber_MP"};
         static readonly List<Entry> Entries=new List<Entry>();
-        static readonly Dictionary<UIAtlas,UIAtlas> Cache=new Dictionary<UIAtlas,UIAtlas>();
+        static readonly AtlasPositiveCache61 Cache=new AtlasPositiveCache61();
         static readonly List<UnityEngine.Object> Owned=new List<UnityEngine.Object>();
         static readonly MethodInfo Clone=typeof(object).GetMethod("MemberwiseClone",BindingFlags.Instance|BindingFlags.NonPublic);
         static EntityTypeCollection ConfiguredRegistry;
@@ -99,12 +99,13 @@ namespace EndfieldDoK.MapUnitLab
         {foreach(Entry e in Entries)if(atlas.GetSprite(e.Name)==null&&atlas.GetSprite(e.Reference)!=null)return true;return false;}
         public static UIAtlas MapAtlas(UIAtlas source)
         {
-            if(source==null||Entries.Count!=22||!Needs(source))return source;
-            UIAtlas cached;if(Cache.TryGetValue(source,out cached)&&cached!=null)return cached;
+            if(source==null||Entries.Count!=22)return source;
+            UIAtlas cached;if(Cache.TryGetValue(source,Entries.Count,out cached)&&cached!=null)return cached;
+            if(!Needs(source))return source;
             try
             {
-                if(Cache.Count>=8)throw new InvalidOperationException("Unit icon atlas cache budget exceeded");
-                UIAtlas result=Build(source);Cache.Add(source,result);return result;
+                if(Cache.Count>=8&&!Cache.ContainsKey(source))throw new InvalidOperationException("Unit icon atlas cache budget exceeded");
+                UIAtlas result=Build(source);Cache.Store(source,result,Entries.Count);return result;
             }
             catch(Exception error){if(!Warned){Warned=true;Runtime.Log("WARNING RHODES_UNIT_ICON_ATLAS "+error.GetType().Name+": "+error.Message+"; nativeAtlasUnchanged=True");}return source;}
         }

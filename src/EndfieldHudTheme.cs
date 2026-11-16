@@ -25,6 +25,10 @@ namespace EndfieldDoK.MapUnitLab
         static readonly Dictionary<UIWidget,Color> WidgetColours = new Dictionary<UIWidget,Color>();
         static readonly Dictionary<FieldKey,FieldSnapshot> FieldChanges = new Dictionary<FieldKey,FieldSnapshot>();
         static readonly Dictionary<Type,FieldInfo[]> SerializedFields = new Dictionary<Type,FieldInfo[]>();
+        static readonly Dictionary<Component,HudSerializedSkinSnapshot61> IconSkins = new Dictionary<Component,HudSerializedSkinSnapshot61>();
+        static readonly Func<Type,FieldInfo[]> SkinFields=GetSerializedFields;
+        static readonly Func<object,bool> SkinOpaque=OpaqueSkinValue;
+        static readonly Predicate<FieldInfo> SkinExcluded=ExcludedSkinField;
         static readonly Dictionary<string,UIAtlas> MenuAtlases = new Dictionary<string,UIAtlas>(StringComparer.Ordinal);
         static readonly HashSet<string> Warnings = new HashSet<string>(StringComparer.Ordinal);
         static readonly List<UnityEngine.Object> Owned = new List<UnityEngine.Object>();
@@ -40,6 +44,7 @@ namespace EndfieldDoK.MapUnitLab
         static float GameHudRetryAt;
         static string DirectoryPath;
         static int PanelReports,IconReports,AtlasReports,ReferenceReports,ResourceReports,ReferenceRoots,MenuMatches,ResearchReports,OpenReports,ProductionReports;
+        static int AtlasTimingDepth;
         public static bool Active { get { return IsEnabled(); } }
 
         struct FieldKey : IEquatable<FieldKey>
@@ -266,14 +271,21 @@ namespace EndfieldDoK.MapUnitLab
 
         public static void IconSpawned(object icon)
         {
-            RhodesHangarStateColours.RegisterIcon(icon);
+            long timing=RhodesSkirmishFrameTiming.Begin();
+            try{IconSpawnedCore(icon);}
+            finally{RhodesSkirmishFrameTiming.End(8,timing);}
+        }
+        static void IconSpawnedCore(object icon)
+        {
             if(!IsEnabled())return;
+            RhodesHangarStateColours.RegisterIcon(icon);
             try
             {
                 Component root=icon as Component;
                 if(root==null)return;
-                ApplyIconStateCaches(root);
-                ApplySubtree(root);
+                HashSet<GameObject> walking=new HashSet<GameObject>();
+                ApplyIconStateCaches(root,walking);
+                ApplySubtree(root,walking,true);
                 if(IconReports++<4)Runtime.Log("ENDFIELD_HUD_ICON themed="+root.GetType().Name+"; pooledSpawnOnly=True; nativeIconNamesRetained=True");
             }
             catch(Exception error){Warn("icon",error);}
@@ -331,27 +343,29 @@ namespace EndfieldDoK.MapUnitLab
             }
             catch(Exception error){Warn("player-slot",error);}
         }
-        static void ApplyIconStateCaches(Component icon)
+        static void ApplyIconStateCaches(Component icon,HashSet<GameObject> walking)
         {
             if(!HasBaseType(icon.GetType(),"BBI.Unity.Game.HUD.NGUIIconController"))return;
             HashSet<object> seen=new HashSet<object>(new IdentityComparer());
             IEnumerable objects=ReadOptional(icon,"m_IconObjects") as IEnumerable;
-            if(objects!=null)foreach(object value in objects)ApplyIconContainer(value,seen);
+            if(objects!=null)foreach(object value in objects)ApplyIconContainer(value,seen,icon,walking);
             IDictionary variables=ReadOptional(icon,"mVisualizationVariables") as IDictionary;
-            if(variables!=null)foreach(object value in variables.Values)ApplyIconContainer(value,seen);
+            if(variables!=null)foreach(object value in variables.Values)ApplyIconContainer(value,seen,icon,walking);
         }
         static bool HasBaseType(Type type,string name)
         {for(Type current=type;current!=null;current=current.BaseType)if(current.FullName==name)return true;return false;}
-        static void ApplyIconContainer(object container,HashSet<object> seen)
+        static void ApplyIconContainer(object container,HashSet<object> seen,Component icon,HashSet<GameObject> walking)
         {
             if(container==null || container.GetType().FullName!="BBI.Unity.Game.HUD.NGUIIconController+VisualizationContainer" || !seen.Add(container))return;
             // Runtime caches owned by this icon; preserve container identity.
             foreach(string field in new string[]{"mInitialColour","mInitialBackgroundColour","mOverridenColour","mOverridenBackgroundColour"})MapNamedColourField(container,field);
             MapAtlasField(container,"mIconAtlas");
-            HashSet<GameObject> walking=new HashSet<GameObject>();
             foreach(string field in new string[]{"m_Sprite","m_Label","m_Button","m_ProgressBar"})
             {
-                Component widget=ReadOptional(container,field) as Component;if(widget!=null)ApplySubtree(widget,walking);
+                Component widget=ReadOptional(container,field) as Component;
+                // The one icon-root pass includes all ordinary visual children.
+                // Follow only explicit references outside that subtree here.
+                if(widget!=null&&!widget.transform.IsChildOf(icon.transform))ApplySubtree(widget,walking,true);
             }
         }
 
@@ -364,13 +378,15 @@ namespace EndfieldDoK.MapUnitLab
         }
         public static Color MapIconColour(object icon,string variable,Color input)
         {
+            if(!IsEnabled())return input;
             if(RhodesHangarStateColours.IsForeground(icon,variable))return input;
-            return MapColour(input);
+            return MapValue(input);
         }
         public static Color MapContainerColour(object container,Color input)
         {
+            if(!IsEnabled())return input;
             if(RhodesHangarStateColours.IsForegroundContainer(container))return input;
-            return MapColour(input);
+            return MapValue(input);
         }
         static Color MapValue(Color input)
         {
@@ -402,7 +418,11 @@ namespace EndfieldDoK.MapUnitLab
         // Only the four exact native texture names qualify. In particular,
         // EF_BVM atlases with appended sprites must retain their own texture.
         public static UIAtlas ThemeAtlas(UIAtlas native)
-        { return RhodesResearch.MapResearchAtlas(OperatorSkillIcons.MapAtlas(OperatorPortraitIcons.MapAtlas(RhodesHudIcon.MapAtlas(ThemeAtlasCore(native))))); }
+        {
+            bool outer=AtlasTimingDepth++==0;long timing=outer?RhodesSkirmishFrameTiming.Begin():0L;
+            try{return RhodesResearch.MapResearchAtlas(OperatorSkillIcons.MapAtlas(OperatorPortraitIcons.MapAtlas(RhodesHudIcon.MapAtlas(ThemeAtlasCore(native)))));}
+            finally{AtlasTimingDepth--;if(outer)RhodesSkirmishFrameTiming.End(9,timing);}
+        }
 
         static UIAtlas ThemeAtlasCore(UIAtlas native)
         {
@@ -447,6 +467,8 @@ namespace EndfieldDoK.MapUnitLab
         static void ApplySubtree(Component root)
         { ApplySubtree(root,new HashSet<GameObject>()); }
         static void ApplySubtree(Component root,HashSet<GameObject> walking)
+        {ApplySubtree(root,walking,false);}
+        static void ApplySubtree(Component root,HashSet<GameObject> walking,bool cacheIconSkin)
         {
             if(root==null || !walking.Add(root.gameObject))return;
             Component[] components=root.GetComponentsInChildren<Component>(true);
@@ -464,7 +486,7 @@ namespace EndfieldDoK.MapUnitLab
                 {
                     UIButtonColor button=component as UIButtonColor;
                     if(button!=null){ApplyButton(button);ApplyButtonTargets(button,walking);}
-                    ApplySerializedColours(component);
+                    bool serializedChanged=ApplySerializedColours(component,cacheIconSkin);
                     UIPopupList popup=component as UIPopupList;
                     if(popup!=null)
                     {
@@ -490,7 +512,15 @@ namespace EndfieldDoK.MapUnitLab
                         }
                     }
                     UIWidget widget=component as UIWidget;
-                    if(widget!=null){if(!IsNativeResourceAccent(widget)&&!RhodesHangarStateColours.IsForegroundVisual(widget))widget.color=MapValue(widget.color);widget.MarkAsChanged();}
+                    if(widget!=null)
+                    {
+                        if(!IsNativeResourceAccent(widget)&&!RhodesHangarStateColours.IsForegroundVisual(widget))
+                        {Color mapped=MapValue(widget.color);if(!Same(widget.color,mapped))widget.color=mapped;}
+                        // Public colour/atlas setters already invalidate NGUI.
+                        // Private serialized gradient changes need one explicit
+                        // invalidation; an unchanged pooled icon needs none.
+                        if(serializedChanged)widget.MarkAsChanged();
+                    }
                 }
                 catch(Exception error){Warn("component:"+component.GetType().FullName,error);}
             }
@@ -555,9 +585,20 @@ namespace EndfieldDoK.MapUnitLab
                 return;
             }
         }
-        static void ApplySerializedColours(Component component)
+        static bool OpaqueSkinValue(object value)
+        {return value is UnityEngine.Object||value is Delegate||RhodesHangarStateColours.IsNativePalette(value);}
+        static bool ExcludedSkinField(FieldInfo field)
         {
+            Type type=field.FieldType;
+            return field.DeclaringType==typeof(UIWidget)&&field.Name=="mColor"||type.IsPrimitive||type.IsEnum||type==typeof(string)||
+                typeof(UnityEngine.Object).IsAssignableFrom(type)||typeof(Delegate).IsAssignableFrom(type);
+        }
+        static bool ApplySerializedColours(Component component,bool cacheIconSkin)
+        {
+            HudSerializedSkinSnapshot61 snapshot;
+            if(cacheIconSkin&&IconSkins.TryGetValue(component,out snapshot)&&snapshot.Matches(component))return false;
             int budget=1024;
+            bool anyChanged=false;
             Dictionary<object,object> copies=new Dictionary<object,object>(new IdentityComparer());
             HashSet<object> visiting=new HashSet<object>(new IdentityComparer());
             foreach(FieldInfo field in GetSerializedFields(component.GetType()))
@@ -567,8 +608,10 @@ namespace EndfieldDoK.MapUnitLab
                 if(field.DeclaringType==typeof(UIWidget) && field.Name=="mColor")continue;
                 object original=field.GetValue(component);bool changed;
                 object mapped=MapSerializedValue(original,0,ref budget,copies,visiting,out changed);
-                if(changed)WriteField(component,field,mapped);
+                if(changed){WriteField(component,field,mapped);anyChanged=true;}
             }
+            if(cacheIconSkin)IconSkins[component]=HudSerializedSkinSnapshot61.Capture(component,SkinFields,SkinOpaque,SkinExcluded);
+            return anyChanged;
         }
         static object MapSerializedValue(object value,int depth,ref int budget,Dictionary<object,object> copies,HashSet<object> visiting,out bool changed)
         {
@@ -838,6 +881,7 @@ namespace EndfieldDoK.MapUnitLab
         // HUD passes for the next match. Never destroy a still-referenced atlas.
         public static void EndSession()
         {
+            IconSkins.Clear();
             RhodesHangarStateColours.ClearContexts();
             RhodesEngineeringLayout.EndSession();
             GameHudBound=GameHudFallbackScanned=GameHudPassCompleted=GameHudLateRetryUsed=false;GameHudRetryAt=0f;
@@ -900,7 +944,7 @@ namespace EndfieldDoK.MapUnitLab
             {
                 RhodesHangarStateColours.ClearContexts();
                 Owned.Clear();Atlases.Clear();FailedAtlases.Clear();MenuAtlases.Clear();SpriteAtlases.Clear();WidgetColours.Clear();FieldChanges.Clear();
-                SerializedFields.Clear();BoundHudRoots.Clear();LinkedMenuButtons.Clear();MenuSprites.Clear();ResourceLabels.Clear();ReferenceGroups.Clear();PopupOriginalAtlases.Clear();
+                SerializedFields.Clear();IconSkins.Clear();BoundHudRoots.Clear();LinkedMenuButtons.Clear();MenuSprites.Clear();ResourceLabels.Clear();ReferenceGroups.Clear();PopupOriginalAtlases.Clear();
                 GameHudBound=false;GameHudFallbackScanned=false;GameHudPassCompleted=false;GameHudLateRetryUsed=false;GameHudRetryAt=0f;Restoring=false;
             }
         }

@@ -102,6 +102,7 @@ foreach($name in @($standardNames+$runtimeNames)){
 foreach($name in $patcherNames){if((Hash-File (Join-Path $core $name)) -cne $inputHashes['loader/core/'+$name]){throw 'A loader compiler reference changed during compilation'}}
 $info=[ordered]@{
     product='Arknights: Deserts of Talos Ⅱ'
+    sourceRevision='hotfix62'
     status='PASS_STRICT_SOURCE_BUILD_ONLY'
     author='PFMartist'
     aiCollaboration='GPT (Codex)'

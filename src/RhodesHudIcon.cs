@@ -24,7 +24,8 @@ namespace EndfieldDoK.MapUnitLab
         static bool UpdateWarned;
         static bool CropReady;
         static int CropX,CropY,CropWidth=256,CropHeight=256;
-        static readonly Dictionary<UIAtlas,UIAtlas> Cache=new Dictionary<UIAtlas,UIAtlas>();
+        static readonly AtlasPositiveCache61 Cache=new AtlasPositiveCache61();
+        static int ReferenceGeneration;
         static readonly List<UnityEngine.Object> Owned=new List<UnityEngine.Object>();
 
         public static void Configure(object customData,object originalData)
@@ -40,7 +41,7 @@ namespace EndfieldDoK.MapUnitLab
             string reference=(string)NativeRead.Get(previous,FieldName);
             if(string.IsNullOrEmpty(reference)||reference==SpriteName)reference=nativeName;
             if(string.IsNullOrEmpty(reference))throw new InvalidOperationException("Rhodes native info reference sprite missing");
-            ReferenceName=reference;
+            if(ReferenceName!=reference){ReferenceName=reference;ReferenceGeneration++;}
             NativeRead.Set(copy,FieldName,SpriteName);NativeRead.Set(custom,"m_IconSettings",copy);
             if((string)NativeRead.Get(native,FieldName)!=nativeName)
                 throw new InvalidOperationException("Rhodes info icon changed native donor HUD");
@@ -55,13 +56,14 @@ namespace EndfieldDoK.MapUnitLab
         {return RhodesUnitIcons.MapAtlas(MapCarrierAtlas(source));}
         static UIAtlas MapCarrierAtlas(UIAtlas source)
         {
-            if(source==null||string.IsNullOrEmpty(ReferenceName)||source.GetSprite(Names[2])!=null)return source;
+            if(source==null||string.IsNullOrEmpty(ReferenceName))return source;
+            UIAtlas cached;if(Cache.TryGetValue(source,ReferenceGeneration,out cached)&&cached!=null)return cached;
+            if(source.GetSprite(Names[2])!=null)return source;
             UISpriteData reference=source.GetSprite(ReferenceName);if(reference==null)return source;
-            UIAtlas cached;if(Cache.TryGetValue(source,out cached)&&cached!=null)return cached;
             try
             {
-                if(Cache.Count>=4)throw new InvalidOperationException("Rhodes info atlas cache budget exceeded");
-                UIAtlas result=BuildAtlas(source,reference);Cache[source]=result;return result;
+                if(Cache.Count>=4&&!Cache.ContainsKey(source))throw new InvalidOperationException("Rhodes info atlas cache budget exceeded");
+                UIAtlas result=BuildAtlas(source,reference);Cache.Store(source,result,ReferenceGeneration);return result;
             }
             catch(Exception error)
             {

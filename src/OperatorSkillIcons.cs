@@ -12,7 +12,8 @@ namespace EndfieldDoK.MapUnitLab
         public const string SpriteName="EF_LAEVAT_ComboPattern";
         sealed class Entry {internal OperatorUiIdentity Identity;internal object View;internal string Reference;internal Texture2D Pattern;internal Color32[] Pixels;}
         static readonly Dictionary<string,Entry> Entries=new Dictionary<string,Entry>(StringComparer.Ordinal);
-        static readonly Dictionary<UIAtlas,UIAtlas> Cache=new Dictionary<UIAtlas,UIAtlas>();
+        static readonly AtlasPositiveCache61 Cache=new AtlasPositiveCache61();
+        static int RegistrationGeneration;
         static bool Warned;
         public static void Configure(object privateAbilityView)
         {Configure(privateAbilityView,"EF_Laevatain_Test");}
@@ -26,7 +27,8 @@ namespace EndfieldDoK.MapUnitLab
             if(object.ReferenceEquals(entry.View,privateAbilityView)&&prior==identity.SkillName)return;
             if(prior==identity.SkillName){entry.View=privateAbilityView;if(entry.Reference!=null)return;throw new InvalidDataException("Operator skill reference lost between private generations");}
             if(string.IsNullOrEmpty(prior))throw new InvalidDataException("Operator native ability icon reference missing");
-            EnsurePattern(entry);entry.Reference=prior;entry.View=privateAbilityView;NativeRead.Set(privateAbilityView,"IconName",identity.SkillName);
+            EnsurePattern(entry);if(entry.Reference!=prior)RegistrationGeneration++;
+            entry.Reference=prior;entry.View=privateAbilityView;NativeRead.Set(privateAbilityView,"IconName",identity.SkillName);
             Runtime.Log("OPERATOR_SKILL_ICON_CONFIGURED exactAbility="+identity.AbilityKey+"; originalSkillMotif=True; whitePatternTransparentBackground=True; sharedNativeAbilityUnchanged=True");
         }
         static void EnsurePattern(Entry entry)
@@ -40,15 +42,16 @@ namespace EndfieldDoK.MapUnitLab
         {foreach(Entry entry in Entries.Values)if(entry.Reference!=null&&source.GetSprite(entry.Identity.SkillName)==null&&source.GetSprite(entry.Reference)!=null)return true;return false;}
         public static UIAtlas MapAtlas(UIAtlas source)
         {
-            if(source==null||!Needs(source))return source;UIAtlas atlas;
-            if(Cache.TryGetValue(source,out atlas)&&atlas!=null&&!Needs(atlas))return atlas;
+            if(source==null)return source;UIAtlas atlas;
+            if(Cache.TryGetValue(source,RegistrationGeneration,out atlas)&&atlas!=null)return atlas;
+            if(!Needs(source))return source;
             try
             {
                 if(!Cache.ContainsKey(source)&&Cache.Count>=8)throw new InvalidOperationException("Operator skill atlas cache budget exceeded");
                 List<string> references=new List<string>(),names=new List<string>();List<Color32[]> pixels=new List<Color32[]>();
                 foreach(Entry entry in Entries.Values)if(entry.Reference!=null&&source.GetSprite(entry.Identity.SkillName)==null&&source.GetSprite(entry.Reference)!=null)
                 {EnsurePattern(entry);references.Add(entry.Reference);names.Add(entry.Identity.SkillName);pixels.Add(entry.Pixels);}
-                atlas=OperatorPortraitIcons.AppendPatterns(source,references.ToArray(),names.ToArray(),pixels.ToArray());Cache[source]=atlas;return atlas;
+                atlas=OperatorPortraitIcons.AppendPatterns(source,references.ToArray(),names.ToArray(),pixels.ToArray());Cache.Store(source,atlas,RegistrationGeneration);return atlas;
             }
             catch(Exception error){if(!Warned){Warned=true;Runtime.Log("WARNING OPERATOR_SKILL_ICON_ATLAS "+error.GetType().Name+": "+error.Message);}return source;}
         }

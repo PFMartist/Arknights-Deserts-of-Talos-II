@@ -2,13 +2,14 @@ using System;
 
 namespace EndfieldDoK.MapUnitLab
 {
-    // Profile28: native allocator owns reservations, charging and refunds.
+    // Profile60: base protection/detection now leave room for power allocation.
+    // The native allocator still owns reservations, charging and refunds.
     public static class RhodesPowerProfile
     {
         public const int SystemCount=4,MaximumLevel=5,InitialPower=5,MaximumPower=24;
         public const float ChargeSecondsPerLevel=3f,DrainSecondsPerLevel=0f;
         public const int HeatThreshold=RhodesThermalProfile.HeatThreshold;
-        static readonly int[] Capacities={5,7,10,14,19,24},Armour={0,2,4,7,10,14},CiwsDamages={0,6,8,8,10,12};
+        static readonly int[] Capacities={5,7,10,14,19,24},Armour={0,5,15,35,55,75},Sensors={0,100,300,600,900,1200},CiwsDamages={0,6,8,8,10,12};
         static readonly string[] Systems={"EF_RHODES_POWER_WEAPONS","EF_RHODES_POWER_DAMAGE_CONTROL","EF_RHODES_POWER_MANEUVER","EF_RHODES_POWER_FIRE_CONTROL"};
         public static int StartingLevel(int system){CheckSystem(system);return 1;}
         public static int ExtraPowerCost(int level){CheckLevel(level);return level;}
@@ -23,7 +24,7 @@ namespace EndfieldDoK.MapUnitLab
         public static int DamageReceivedPercent(int level){CheckLevel(level);return 0;}
         public static int ArmourIncrease(int level){CheckLevel(level);return Armour[level];}
         public static int SpeedPercent(int level){CheckLevel(level);return 8*level;}
-        public static int SensorContactIncrease(int level){CheckLevel(level);return 100*level;}
+        public static int SensorContactIncrease(int level){CheckLevel(level);return Sensors[level];}
         public static int MainRangePercent(int level){CheckLevel(level);return 4*level;}
         public static int CiwsDamage(int level){CheckLevel(level);return CiwsDamages[level];}
         public static int CiwsRateOfFire(int level){CheckLevel(level);return 2*level;}

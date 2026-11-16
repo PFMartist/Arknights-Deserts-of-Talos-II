@@ -42,7 +42,14 @@ namespace EndfieldDoK.MapUnitLab
         internal static void RegisterIcon(object value)
         {
             NGUIIconController icon=value as NGUIIconController;if(object.ReferenceEquals(icon,null))return;
-            foreach(object item in Containers(icon))if(item!=null)Owners[item]=new WeakReference(icon);
+            WeakReference owner=null;
+            foreach(object item in Containers(icon))if(item!=null)
+            {
+                WeakReference existing;
+                if(Owners.TryGetValue(item,out existing)&&object.ReferenceEquals(existing.Target,icon))continue;
+                if(owner==null)owner=new WeakReference(icon);
+                Owners[item]=owner;
+            }
         }
         internal static void ClearContexts(){Owners.Clear();}
         static NGUIIconController Owner(object container)
@@ -72,7 +79,6 @@ namespace EndfieldDoK.MapUnitLab
         }
         internal static bool IsForeground(object value,string variable)
         {
-            RegisterIcon(value);
             return variable=="Icon"&&IsSlot(value as NGUIIconController);
         }
         internal static bool IsForegroundContainer(object container)
