@@ -17,6 +17,8 @@
 
 目前主要测试范围是**玩家操控罗德岛，对抗原版 AI 的单机遭遇战**。这是一个业余兴趣项目，平衡、性能和操作体验仍有不足，后续更新没有固定计划。
 
+> **维护说明：**受时间、精力和代码审阅能力所限，作者可能无法持续关注或回复 Issue 和功能请求，也可能无法审阅、测试或合并 Pull Request 及其他代码贡献，因此不保证响应或处理。感谢理解。
+
 ## 安装与启动
 
 需要 Windows 64 位环境及通过 Steam 安装的《家园：卡拉克沙漠》。当前支持目标为 Steam build **12339551**；安装器会核对游戏目录和核心文件版本。完整包不包含游戏本体。
@@ -45,7 +47,7 @@ Releases 中的完整玩家包包含安装器和资源。仓库的 **Code → Do
 - 长局和大量单位场景仍可能卡顿。车辆、舰载机及母舰已加入渲染优化，但不同硬件、地图和镜头下的收益需要继续观察。
 - 联机 PvP/PvE、电脑操控罗德岛，以及全部地图与 DLC 组合尚未完成验收。建议按上面的单机遭遇战范围游玩。
 
-欢迎提交 [Issue](https://github.com/PFMartist/Arknights-Deserts-of-Talos-II/issues)。请附上启动器显示的版本、地图、双方阵营、操作步骤和复现方式。游戏日志位于游戏目录的 `BepInEx/MapUnitLab.Runtime.log` 与 `Data/output_log.txt`；分享前请检查其中的个人信息。更详细的限制见随包 `KNOWN_ISSUES.md`。
+如需记录问题，可提交 [Issue](https://github.com/PFMartist/Arknights-Deserts-of-Talos-II/issues)。请附上启动器显示的版本、地图、双方阵营、操作步骤和复现方式。游戏日志位于游戏目录的 `BepInEx/MapUnitLab.Runtime.log` 与 `Data/output_log.txt`；分享前请检查其中的个人信息。更详细的限制见随包 `KNOWN_ISSUES.md`。
 
 ## 源码与贡献
 
