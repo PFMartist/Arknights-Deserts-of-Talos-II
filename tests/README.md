@@ -1,18 +1,20 @@
 # 源码测试
 
-仓库收录 Hotfix59–64 的源码与元数据回归入口。部分夹具使用仓库内托管替身，部分需要开发者本地提供的原生程序集或资源，具体输入见下表。
+仓库收录 Hotfix59–65 的源码与元数据回归入口。部分夹具使用仓库内托管替身，部分需要开发者本地提供的原生程序集或资源，具体输入见下表。
 
 所有新增夹具从相对的`src`读取实际生产helper或方法体；输出写入Git忽略的`out/tests`。本地输出可能含编译输入路径，不应作为源码提交。
 
 ## 不需要游戏资源的夹具
 
-在Windows上，提供系统.NET Framework 4.x编译器；atlas夹具另需Python 3：
+在 Windows 上运行，需提供系统 .NET Framework 4.x 编译器。atlas 与 operator65 夹具另需 Python 3。
 
 ```powershell
 .\tests\frame60\Test-FrameTiming60.ps1
 .\tests\hud61\run_hud61.ps1
 .\tests\operatorlayout61\run_operatorlayout61.ps1
 .\tests\lod64\Test-NativeLodBounds64.ps1
+.\tests\hangar65\Test-HangarLifecycle65.ps1
+python .\tests\operator65\run_operator65.py
 python .\tests\atlas61\test_atlas61.py
 ```
 
@@ -31,6 +33,14 @@ python .\tests\atlas61\test_atlas61.py
 - 注入部分写入失败，核对两个 LOD 组恢复后可成功重试。
 
 该入口当前通过 138 个场景、3542 项检查。输出位于 `out/tests/lod64`，包含编译日志、执行结果及带源码哈希的 `REPORT.json`。测试范围为托管变换和 LODGroup 行为，GPU 渲染及实际相机下的分档由实机验证覆盖。
+
+### Hotfix65 跨局界面生命周期
+
+`hangar65` 直接编译完整生产类 `src/RhodesHangarLayout.cs`，配合托管界面与协程替身，覆盖本局控制器重绑、旧委托解除、原始网格恢复、控件替换以及禁用后恢复。当前通过 53 项检查，输出位于 `out/tests/hangar65`。
+
+`operator65` 提取 `src/RhodesOperatorStatusUI.cs` 的实际会话绑定、延迟构建及清理方法，配合托管替身检查控制器切换、控件重建、重复绑定和协程取消。当前通过，输出位于 `out/tests/operator65`。
+
+同一夹具对 Hotfix64 旧实现均明确失败。以上验证覆盖受控生命周期与方法行为，同一游戏进程内连续第二局的实际界面、点击和画面仍待实机验收。
 
 ## 需要开发者本地依赖的夹具
 

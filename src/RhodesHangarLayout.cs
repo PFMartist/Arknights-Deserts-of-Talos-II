@@ -44,7 +44,10 @@ namespace EndfieldDoK.MapUnitLab
             RhodesHangarStateColours.ObserveNative(controller);
             RhodesHangarLayout driver=unitInterface.GetComponent<RhodesHangarLayout>();
             if(driver==null)driver=unitInterface.gameObject.AddComponent<RhodesHangarLayout>();
-            if(driver.Ready)return;
+            // UnitInterfaceController survives sessions, but the native hangar
+            // controller and its selection delegates are recreated each time.
+            // Every explicit constructor bind must renew this session binding.
+            driver.Unbind();
             object settings=NativeRead.Get(controller,"mSettings"),commands=NativeRead.Get(unitInterface,"mCommandPanelSettings");
             driver.Fighter=NativeRead.Get(settings,"m_HangarInterceptorGrid") as UIGrid;
             driver.Rotor=NativeRead.Get(settings,"m_HangarGunShipGrid") as UIGrid;
@@ -68,7 +71,7 @@ namespace EndfieldDoK.MapUnitLab
         void OnVisible(bool visible){if(visible)Schedule();}
         void OnEnable(){if(Ready)Schedule();}
         void OnDisable(){StopAllCoroutines();Pending=false;}
-        void Schedule(){if(!Ready||Pending||!gameObject.activeInHierarchy)return;Pending=true;StartCoroutine(DeferredLayout());}
+        void Schedule(){if(!Ready||Pending||!gameObject.activeInHierarchy||Root==null||Fighter==null||Rotor==null||Deploy==null||Recall==null)return;Pending=true;StartCoroutine(DeferredLayout());}
         IEnumerator DeferredLayout()
         {
             yield return null;Pending=false;
@@ -77,7 +80,7 @@ namespace EndfieldDoK.MapUnitLab
         void Restore()
         {
             if(!Applied)return;
-            FighterOriginal.Restore();RotorOriginal.Restore();if(BomberOriginal!=null)BomberOriginal.Restore();RecallOriginal.Restore();Applied=false;
+            if(FighterOriginal!=null)FighterOriginal.Restore();if(RotorOriginal!=null)RotorOriginal.Restore();if(BomberOriginal!=null)BomberOriginal.Restore();if(RecallOriginal!=null)RecallOriginal.Restore();Applied=false;
         }
         static float GraphicSize(NGUIIconController prefab)
         {
@@ -128,6 +131,7 @@ namespace EndfieldDoK.MapUnitLab
         }
         void Reflow()
         {
+            if(Root==null||Fighter==null||Rotor==null||Deploy==null||Recall==null)return;
             Dictionary<string,List<NGUIIconController>> slots=NativeRead.Get(Controller,"mHangarSlotIcons") as Dictionary<string,List<NGUIIconController>>;
             List<NGUIIconController> fighters,rotors,bombers=null;
             if(slots==null||!slots.TryGetValue(RhodesCarrierUnits.AircraftKey,out fighters)||!slots.TryGetValue(FactionUnits.TiltStrikeKey,out rotors))
@@ -159,11 +163,15 @@ namespace EndfieldDoK.MapUnitLab
             Recall.transform.position=Root.TransformPoint(recall);Applied=true;
             if(Reports++<4)Runtime.Log("RHODES_HANGAR_LAYOUT_APPLIED fighterColumns=3; tiltColumns=1; topAligned=True; launchButtonCentersUsed=True; recallBelowSlots=True; slotStep="+step+"; fighterParentScale="+fighterScale+"; tiltParentScale="+rotorScale+"; pooledIconRootScaleWrites=False; invisibleColliderExcludedFromSize=True; nativePrefabsAndClickHandlersRetained=True; eventDrivenOnly=True; runtimeVisualAcceptancePending=True");
         }
-        void OnDestroy()
+        void Unbind()
         {
+            Ready=false;StopAllCoroutines();Pending=false;
             if(Interface!=null){Interface.NewSelection-=OnSelection;Interface.NewLeadUnitSelected-=OnLead;}
             if(Controller!=null)Controller.UnitHangarPanelVisibleChanged-=OnVisible;
-            Restore();Ready=false;
+            Restore();Controller=null;Interface=null;Root=null;
+            Fighter=null;Rotor=null;Bomber=null;Deploy=null;Recall=null;
+            FighterOriginal=null;RotorOriginal=null;BomberOriginal=null;RecallOriginal=null;Reports=0;
         }
+        void OnDestroy(){Unbind();}
     }
 }

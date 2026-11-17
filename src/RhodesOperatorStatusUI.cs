@@ -83,7 +83,7 @@ namespace EndfieldDoK.MapUnitLab
         GameObject Root;
         Transform NativeHangar;
         Bounds NativeRegion;
-        bool AlignmentPending,BuildPending,EventsBound,RegionDumped;
+        bool AlignmentPending,BuildPending,RegionDumped;
         object PendingHangarController;
         UnitHangarPanelController NativeHangarController;
         Transform RegionHint,NativeSpace,HangarObject;
@@ -116,16 +116,15 @@ namespace EndfieldDoK.MapUnitLab
             if(owner==null)return;
             RhodesOperatorStatusUI driver=owner.GetComponent<RhodesOperatorStatusUI>();
             if(driver==null)driver=owner.gameObject.AddComponent<RhodesOperatorStatusUI>();
-            if(driver.Ready)return;
-            if(!driver.EventsBound)
-            {
-                driver.Interface=owner;driver.PendingHangarController=hangarController;
-                driver.NativeHangarController=hangarController as UnitHangarPanelController;
-                owner.NewSelection+=driver.OnSelection;owner.NewLeadUnitSelected+=driver.OnLead;owner.NewFrameFromSim+=driver.OnFrame;
-                UICamera.onScreenResize+=driver.OnScreenResize;
-                if(driver.NativeHangarController!=null)driver.NativeHangarController.UnitHangarPanelVisibleChanged+=driver.OnNativeHangarVisible;
-                driver.EventsBound=true;
-            }
+            // The native hangar constructor calls this once per session. Its
+            // UnitInterface host survives, but native session-end clears the
+            // selection delegates and disposes the old hangar controller.
+            driver.Cleanup();
+            driver.Interface=owner;driver.PendingHangarController=hangarController;
+            driver.NativeHangarController=hangarController as UnitHangarPanelController;
+            owner.NewSelection+=driver.OnSelection;owner.NewLeadUnitSelected+=driver.OnLead;owner.NewFrameFromSim+=driver.OnFrame;
+            UICamera.onScreenResize+=driver.OnScreenResize;
+            if(driver.NativeHangarController!=null)driver.NativeHangarController.UnitHangarPanelVisibleChanged+=driver.OnNativeHangarVisible;
             driver.ScheduleBuild();
         }
         void ScheduleBuild()
@@ -561,13 +560,21 @@ namespace EndfieldDoK.MapUnitLab
             UICamera.onScreenResize-=OnScreenResize;StopAllCoroutines();AlignmentPending=BuildPending=false;
             if(Interface!=null){Interface.NewSelection-=OnSelection;Interface.NewLeadUnitSelected-=OnLead;Interface.NewFrameFromSim-=OnFrame;}
             if(NativeHangarController!=null)NativeHangarController.UnitHangarPanelVisibleChanged-=OnNativeHangarVisible;
-            EventsBound=false;DestroyWidgets();
+            DestroyWidgets();Interface=null;PendingHangarController=null;NativeHangarController=null;
+            Selected=Entity.None;ActiveSlot=0;Slots=new RhodesOperatorSlotStatus[RhodesOperatorTransport.Capacity];
+            LastCargoRevision=LastManifestRevision=-1;LocalFeedback=LastPhase=LastSkillType=LastSkillReason=null;
+            LastSkillSeconds=-1;LastSkillKnown=LastSkillReady=LastAutoResearched=LastAutoEnabled=false;
+            RegionDumped=false;GeometryReports=BuildAttempts=BuildWarnings=0;LastGeometry=RegionReference=null;Dirty=false;
         }
         void DestroyWidgets()
         {
+            if(Root!=null)Root.SetActive(false);
             foreach(SlotWidgets card in Cards)if(card!=null&&card.Icon!=null)
             {if(card.HitInput!=null){card.HitInput.ClickAction=null;card.HitInput.DoubleClickAction=null;}card.Icon.ClickAction=null;card.Icon.DoubleClickAction=null;try{NativeRead.Call(card.Icon,"OnDespawned",HudDependencies);}catch(Exception){}UnityEngine.Object.Destroy(card.Icon.gameObject);card.Icon=null;}
             if(Root!=null)UnityEngine.Object.Destroy(Root);Root=null;Ready=false;
+            Array.Clear(Cards,0,Cards.Length);Array.Clear(Actions,0,Actions.Length);AutoAction=null;
+            NativeHangar=RegionHint=NativeSpace=HangarObject=null;NativeFrame=null;NativeFontReference=null;
+            Background=Accent=HeaderRule=null;Header=Phase=Detail=Feedback=null;UICameraReference=null;HudDependencies=null;Layout=null;
         }
     }
 }
